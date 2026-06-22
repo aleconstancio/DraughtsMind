@@ -10,6 +10,8 @@ O código-fonte está disponível em:
 
 https://github.com/salemnopturn/DraughtsMind
 
+Usar preferencialmente no Chrome e Edge para salvamento de .pdn com livre escolha, no Firefox o salvamento é exclusivamente na pasta de Downloads.
+
 Licença: GPL-3.0-or-later
 
 ---
