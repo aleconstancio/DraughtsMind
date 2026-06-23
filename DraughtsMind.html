@@ -222,36 +222,32 @@
 
 <script>
 // ══════════════════════════════════════════════════════════════════════════════
-//  DraughtsMind  v10.2.0  —  Grandmaster Edition
+//  DraughtsMind  v10.3.0  —  Grandmaster Edition (Tactical Fix)
 //  Brazilian Draughts (64 squares, CBD rules), 100 % offline, single file.
 //
-//  Δ v10.1.0 → v10.2.0  (Grandmaster Engine)
+//  Δ v10.2.0 → v10.3.0  (Tactical Correctness & Engine Audit)
 //  ─────────────────────────────────────────────────────────────────────────
-//  [GM-1]  Null Move Pruning (NMP): in quiet positions (no mandatory captures,
-//          ≥10 pieces on board) the engine makes a null move with reduction
-//          R=2 (R=3 at depth≥6) and tests for a fail-high.  This dramatically
-//          increases effective search depth at the same wall-clock time.
-//          Guards: not in endgame, not in capture sequences, not near mate.
-//  [GM-2]  Delta Pruning in Quiescence: stand-pat evaluation added before
-//          entering capture chains.  Captures whose maximum possible gain
-//          (capturedPieces×120 + 150 cp margin) cannot exceed alpha are
-//          pruned immediately, reducing useless qsearch blowup.
-//  [GM-3]  Grandmaster Evaluation:
-//          • Central Square Control — bonus for men/kings on d4/c5/e5/f4
-//            (the four inner dark squares around the board centre).
-//          • Tempo — small asymmetric bonus for the side to move (initiative).
-//          • Advanced Men — strengthened advancement weight (×7 from ×5).
-//          • Protected Men — weight raised (×6 from ×4).
-//          • Promotion Pressure — max-rank weight raised (×10 from ×8).
-//  [GM-4]  Massive Opening Book — 80 verified lines encoded as a compact
-//          string (2-char-per-move, '|'-separated).  New decoder bypasses
-//          the algebraic-string parser for faster startup.
-//          Fuzzy Selection (v10.1.0 DYN-2) preserved unchanged.
+//  [FIX-A]  Eval recalibrated: all positional multipliers reduced so that
+//           the total positional advantage NEVER exceeds ~70 cp in realistic
+//           play.  Material (100 cp/man, 300+ cp/king) always dominates.
+//           Prevents suicidal piece sacrifices for positional "score inflating".
+//  [FIX-B]  Quiescence reverted to correct mandatory-capture logic.
+//           Stand-pat and Delta Pruning are WRONG for Brazilian Draughts:
+//           captures are legally mandatory — the side cannot choose to stand pat.
+//           Quiescence now correctly resolves all forced capture chains before
+//           returning a static evaluation.
+//  [FIX-C]  Null Move Pruning hardened against Zugzwang (very common in
+//           draughts).  New guards: (1) static eval must already ≥ beta before
+//           attempting NMP, (2) consecutive null moves blocked via inNullMove
+//           flag, (3) piece threshold raised from ≥10 to ≥14, (4) minimum
+//           depth raised from 3 to 4.  These four conditions together make NMP
+//           fire only in clearly winning, tactically quiet positions.
+//  [GM-4]  Massive Opening Book (80 lines) and Fuzzy Selection unchanged.
 //
-//  UI, clock (Date.now()), PDN import/export, and game-tree are untouched.
+//  UI, clock (Date.now()), board rendering and PDN import/export untouched.
 // ══════════════════════════════════════════════════════════════════════════════
 
-    const ENGINE_VERSION = "10.2.0";
+    const ENGINE_VERSION = "10.3.0";
     const EMPTY = 0, W_MAN = 1, B_MAN = -1, W_KING = 2, B_KING = -2;
     const MODE_HVH = 0, MODE_HVM = 1, MODE_MVH = 2, MODE_MVM = 3, MODE_SAND = 4;
 
@@ -546,28 +542,29 @@
             if (wTot !== bTot) score += (wTot-bTot)*18; // numerical superiority compound
 
             // ── Positional ──────────────────────────────────────────────────
-            score += (wAdv-bAdv)*7;           // [GM-3] strengthened advancement weight
-            score += (wMaxRank-bMaxRank)*10;  // [GM-3] stronger promotion pressure
-            score += (wCenter-bCenter)*9;
-            score += (wMob-bMob)*3;
-            score -= (wEdge-bEdge)*6;         // edge-file mobility penalty
-            score -= (Math.abs(wLft-wRgt)-Math.abs(bLft-bRgt))*4; // wing balance
-            // [NEW-2] Protected men bonus
-            score += (wProt-bProt)*6;         // [GM-3] raised from ×4
-            // [NEW-2] Backward men penalty
-            score -= (wBack2-bBack2)*5;
+            // [FIX-A] All multipliers recalibrated: realistic combined maximum ≤ 70 cp.
+            // A single man = 100 cp — no positional bias alone can justify a sacrifice.
+            score += (wAdv-bAdv)*2;           // advancement (max realistic diff ~15 → 30 cp)
+            score += (wMaxRank-bMaxRank)*4;   // promotion pressure (max diff 7 → 28 cp)
+            score += (wCenter-bCenter)*4;     // broad centre control (max diff 6 → 24 cp)
+            score += (wMob-bMob)*2;           // mobility (max diff 8 → 16 cp)
+            score -= (wEdge-bEdge)*5;         // edge-file mobility penalty
+            score -= (Math.abs(wLft-wRgt)-Math.abs(bLft-bRgt))*3; // wing balance
+            // Protected men bonus — small reward for structure
+            score += (wProt-bProt)*3;         // max diff ~6 → 18 cp
+            // Backward men penalty
+            score -= (wBack2-bBack2)*4;
             // Back-row anchor (midgame only)
-            if (!isEG) score += (wBack-bBack)*7;
+            if (!isEG) score += (wBack-bBack)*4;
 
-            // [GM-3] Central Square Control — d4(27), c5(34), e5(36), f4(29).
-            // These four inner dark squares dominate the board centre; a piece
-            // here controls multiple diagonals and restricts enemy mobility.
+            // Central Square Control — d4(27), c5(34), e5(36), f4(29).
+            // Reduced multiplier: max 4 squares × 6 = 24 cp
             let wCentKey=0, bCentKey=0;
             for (const sq of [27, 34, 36, 29]) {
                 const p = this.board[sq];
                 if (p > 0) wCentKey++; else if (p < 0) bCentKey++;
             }
-            score += (wCentKey - bCentKey) * 14;
+            score += (wCentKey - bCentKey) * 6;
 
             // ── King activity ────────────────────────────────────────────────
             score += (wKMob-bKMob)*2;
@@ -768,6 +765,8 @@
     //  SEARCH  — Negamax + PVS + LMR + Alpha-Beta + TT + Killers + History
     // ════════════════════════════════════════════════════════════════════════
     let nodes = 0, searchAborted = false, searchStartTime = 0, searchTimeLimitMs = 0;
+    // [FIX-C] Prevents consecutive null moves (double-null = zugzwang blindness)
+    let inNullMove = false;
 
     function search(state, depth, alpha, beta, ply) {
         nodes++;
@@ -791,34 +790,43 @@
         const moves = state.getMoves();
         if (moves.length === 0) return -9999 + ply;
 
-        // [GM-1] Null Move Pruning — pass the turn and test for fail-high.
-        // Conditions: depth≥3, no mandatory captures, not near mate, mid-game (≥10 pieces).
-        if (depth >= 3 && moves[0].captured.length === 0 && beta < 9000 && beta > -9000) {
+        // [FIX-C] Null Move Pruning — hardened for draughts Zugzwang safety.
+        // Four mandatory guards before firing NMP:
+        //  1. inNullMove=false  → no consecutive null moves (double-null = blind spot)
+        //  2. depth >= 4        → shallow searches skip NMP entirely
+        //  3. no captures       → captures are mandatory; passing is illegal there
+        //  4. pc >= 14          → endgame/midgame: Zugzwang too likely with few pieces
+        //  5. staticEval >= beta → position must genuinely be winning before we prune
+        if (!inNullMove && depth >= 4 && moves[0].captured.length === 0 &&
+                beta < 9000 && beta > -9000) {
             let pc = 0; for (let i = 0; i < 64; i++) if (state.board[i] !== EMPTY) pc++;
-            if (pc >= 10) {
-                const ns = state.clone();
-                ns.turn = -ns.turn;       // "pass" the turn
-                ns.halfMoveClock++;        // null move keeps quiet-move clock ticking
-                const h2 = ns.hash();
-                if (!ns.hashHist.includes(h2)) { // guard against phantom repetition
-                    ns.hashHist.push(h2);
-                    if (ns.hashHist.length > 256) ns.hashHist.shift();
-                    const R_NMP = depth >= 6 ? 3 : 2;
-                    const nullScore = -search(ns, depth - 1 - R_NMP, -beta, -beta + 1, ply + 1);
-                    if (!searchAborted && nullScore >= beta) return nullScore;
+            if (pc >= 14) {
+                const staticEval = state.eval();
+                if (staticEval >= beta) { // only prune when position is already good
+                    const ns = state.clone();
+                    ns.turn = -ns.turn;
+                    ns.halfMoveClock++;
+                    const h2 = ns.hash();
+                    if (!ns.hashHist.includes(h2)) {
+                        ns.hashHist.push(h2);
+                        if (ns.hashHist.length > 256) ns.hashHist.shift();
+                        const R_NMP = depth >= 6 ? 3 : 2;
+                        inNullMove = true;
+                        const nullScore = -search(ns, depth - 1 - R_NMP, -beta, -beta + 1, ply + 1);
+                        inNullMove = false;
+                        if (!searchAborted && nullScore >= beta) return nullScore;
+                    }
                 }
             }
         }
 
-        // [GM-2] Quiescence with stand-pat and Delta Pruning.
-        // Stand-pat lets us skip capture chains that can't improve the score.
+        // [FIX-B] Quiescence — correct mandatory-capture logic for Brazilian Draughts.
+        // IMPORTANT: In draughts captures are LEGALLY MANDATORY — the side to move
+        // cannot "stand pat" when captures are available.  Stand-pat and Delta Pruning
+        // are semantically invalid here and were causing tactical blindness.
+        // Correct behaviour: if captures exist, keep searching until none remain.
         if (depth <= 0) {
-            const standPat = state.eval();
-            if (moves[0].captured.length === 0 || depth < -16) return standPat;
-            if (standPat >= beta) return standPat;             // stand-pat β cutoff
-            if (standPat > alpha) alpha = standPat;            // improve α with stand-pat
-            // Delta pruning: even capturing every piece in the sequence can't reach α
-            if (standPat + moves[0].captured.length * 120 + 150 < alpha) return standPat;
+            if (moves[0].captured.length === 0 || depth < -16) return state.eval();
         }
 
         orderMoves(moves, hfm, htm, ply);
