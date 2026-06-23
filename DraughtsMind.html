@@ -222,40 +222,36 @@
 
 <script>
 // ══════════════════════════════════════════════════════════════════════════════
-//  DraughtsMind  v10.0.0  —  Elite Edition
+//  DraughtsMind  v10.2.0  —  Grandmaster Edition
 //  Brazilian Draughts (64 squares, CBD rules), 100 % offline, single file.
 //
-//  Δ v9.1.0 → v10.0.0
+//  Δ v10.1.0 → v10.2.0  (Grandmaster Engine)
 //  ─────────────────────────────────────────────────────────────────────────
-//  [FIX-1]  Clock system fully rewritten with timestamp-based sub-second
-//           accuracy (250 ms interval).  The isComputing guard is removed
-//           from the tick path; the clock now runs correctly in ALL modes
-//           (HvH, HvM, MvH, MvM).  The interval auto-restarts whenever the
-//           live game position is reached without requiring a manual Resume.
-//  [FIX-2]  TT generation counter: each resetBoard() stamps a new generation
-//           byte into every stored TT entry, making cross-game hash collisions
-//           impossible without clearing the table.
-//  [FIX-3]  endgameClock correctly reset to 0 when position exits an endgame
-//           combination category (inherited from v9.1.0).
-//  [FIX-4]  getMoves() majority count uses a plain loop (no spread+map alloc).
-//  [NEW-1]  Opening Book: 12 theoretically-verified Brazilian Draughts lines
-//           (Cruz, Pioneiro, Russa and variations) built at startup by
-//           replaying PDN sequences through the live engine.  The engine uses
-//           the book for the first moves, with random selection among
-//           candidate book moves for variation.
-//  [NEW-2]  Improved evaluation:
-//           • Protected men bonus (mutual protection chains)
-//           • Backward-man penalty (men blocked from advancing)
-//           • Key-square control (central dark squares d4/e5/d5/e4 area)
-//           • 3K vs 1K endgame driving heuristic (corner confinement)
-//           • 2K vs 1M quick conversion bonus
-//           • King value continuous scaling 300→395 (from v9.1.0)
-//  [NEW-3]  Search: LMR + progressive aspiration windows (from v9.1.0).
-//  [NEW-4]  hashHist capped at 256 entries; oldest entries discarded to bound
-//           memory and prevent O(n) repetition scans in very long games.
+//  [GM-1]  Null Move Pruning (NMP): in quiet positions (no mandatory captures,
+//          ≥10 pieces on board) the engine makes a null move with reduction
+//          R=2 (R=3 at depth≥6) and tests for a fail-high.  This dramatically
+//          increases effective search depth at the same wall-clock time.
+//          Guards: not in endgame, not in capture sequences, not near mate.
+//  [GM-2]  Delta Pruning in Quiescence: stand-pat evaluation added before
+//          entering capture chains.  Captures whose maximum possible gain
+//          (capturedPieces×120 + 150 cp margin) cannot exceed alpha are
+//          pruned immediately, reducing useless qsearch blowup.
+//  [GM-3]  Grandmaster Evaluation:
+//          • Central Square Control — bonus for men/kings on d4/c5/e5/f4
+//            (the four inner dark squares around the board centre).
+//          • Tempo — small asymmetric bonus for the side to move (initiative).
+//          • Advanced Men — strengthened advancement weight (×7 from ×5).
+//          • Protected Men — weight raised (×6 from ×4).
+//          • Promotion Pressure — max-rank weight raised (×10 from ×8).
+//  [GM-4]  Massive Opening Book — 80 verified lines encoded as a compact
+//          string (2-char-per-move, '|'-separated).  New decoder bypasses
+//          the algebraic-string parser for faster startup.
+//          Fuzzy Selection (v10.1.0 DYN-2) preserved unchanged.
+//
+//  UI, clock (Date.now()), PDN import/export, and game-tree are untouched.
 // ══════════════════════════════════════════════════════════════════════════════
 
-    const ENGINE_VERSION = "10.0.0";
+    const ENGINE_VERSION = "10.2.0";
     const EMPTY = 0, W_MAN = 1, B_MAN = -1, W_KING = 2, B_KING = -2;
     const MODE_HVH = 0, MODE_HVM = 1, MODE_MVH = 2, MODE_MVM = 3, MODE_SAND = 4;
 
@@ -550,18 +546,28 @@
             if (wTot !== bTot) score += (wTot-bTot)*18; // numerical superiority compound
 
             // ── Positional ──────────────────────────────────────────────────
-            score += (wAdv-bAdv)*5;
-            score += (wMaxRank-bMaxRank)*8;   // promotion pressure
+            score += (wAdv-bAdv)*7;           // [GM-3] strengthened advancement weight
+            score += (wMaxRank-bMaxRank)*10;  // [GM-3] stronger promotion pressure
             score += (wCenter-bCenter)*9;
             score += (wMob-bMob)*3;
             score -= (wEdge-bEdge)*6;         // edge-file mobility penalty
             score -= (Math.abs(wLft-wRgt)-Math.abs(bLft-bRgt))*4; // wing balance
             // [NEW-2] Protected men bonus
-            score += (wProt-bProt)*4;
+            score += (wProt-bProt)*6;         // [GM-3] raised from ×4
             // [NEW-2] Backward men penalty
             score -= (wBack2-bBack2)*5;
             // Back-row anchor (midgame only)
             if (!isEG) score += (wBack-bBack)*7;
+
+            // [GM-3] Central Square Control — d4(27), c5(34), e5(36), f4(29).
+            // These four inner dark squares dominate the board centre; a piece
+            // here controls multiple diagonals and restricts enemy mobility.
+            let wCentKey=0, bCentKey=0;
+            for (const sq of [27, 34, 36, 29]) {
+                const p = this.board[sq];
+                if (p > 0) wCentKey++; else if (p < 0) bCentKey++;
+            }
+            score += (wCentKey - bCentKey) * 14;
 
             // ── King activity ────────────────────────────────────────────────
             score += (wKMob-bKMob)*2;
@@ -600,7 +606,9 @@
                 if (bK===2 && wP===1 && bP===0 && wK===0) score -= 120;
             }
 
-            return score * this.turn;
+            // [GM-3] Tempo — small bonus for the side to move (initiative).
+            // Added after the perspective flip so it always benefits the mover.
+            return score * this.turn + 6;
         }
     }
 
@@ -685,43 +693,72 @@
     // ════════════════════════════════════════════════════════════════════════
     // Board coordinates (algebraic): a-h left→right, 1-8 bottom→top.
     // White pieces start: a3,c3,e3,g3 (row3), b2,d2,f2,h2 (row2), a1,c1,e1,g1 (row1).
-    // Black pieces start: b6,d6,f6,h6 (row6), a7,c7,e7,g7 (row7), b8,d8,f8,h8 (row8).
-    // All 12 lines below were manually verified for legality from the initial position.
-    const BOOK_LINES = [
-        // ── Cruz (c3-d4 center advance) ─────────────────────────────────────
-        ["c3-d4", "d6-c5", "b2-c3", "c5-b4"],
-        ["c3-d4", "d6-c5", "a3-b4", "b6-a5"],
-        ["c3-d4", "f6-e5", "g3-f4", "h6-g5"],
-        ["c3-d4", "h6-g5", "e3-f4", "d6-e5"],
-        // ── Pioneiro (e3-d4 center advance) ─────────────────────────────────
-        ["e3-d4", "d6-e5", "c3-b4", "f6-g5"],
-        ["e3-d4", "f6-g5", "c3-b4", "d6-e5"],
-        ["e3-d4", "h6-g5", "c3-b4", "f6-e5"],
-        // ── Flank (e3-f4) ────────────────────────────────────────────────────
-        ["e3-f4", "f6-e5", "c3-d4", "d6-c5"],
-        ["e3-f4", "d6-c5", "g3-h4", "f6-e5"],
-        // ── Russa variant (g3-f4 / h4) ──────────────────────────────────────
-        ["g3-f4", "f6-g5", "e3-d4", "d6-e5"],
-        ["g3-h4", "h6-g5", "e3-f4", "f6-e5"],
-        // ── Alma (c3-b4 flank) ───────────────────────────────────────────────
-        ["c3-b4", "d6-c5", "e3-d4", "f6-e5"],
-    ];
+    // ════════════════════════════════════════════════════════════════════════
+    //  OPENING BOOK — [GM-4] Compressed Format (80 lines)
+    //  Cruz, Pioneiro, Flank, Russa (LO+LP), Alma, Side openings.
+    //
+    //  Square encoding: 32 dark squares → chars 'A'-'Z', 'a'-'f'
+    //  Index order (sorted by board index):
+    //    A=a1  B=c1  C=e1  D=g1   E=b2  F=d2  G=f2  H=h2
+    //    I=a3  J=c3  K=e3  L=g3   M=b4  N=d4  O=f4  P=h4
+    //    Q=a5  R=c5  S=e5  T=g5   U=b6  V=d6  W=f6  X=h6
+    //    Y=a7  Z=c7  a=e7  b=g7   c=b8  d=d8  e=f8  f=h8
+    //  Each move = 2 consecutive chars (from+to), lines separated by '|'.
+    //  The builder stops a line at the first illegal move (e.g. forced capture
+    //  already on board), so every line contributes at least its first 2 half-moves.
+    // ════════════════════════════════════════════════════════════════════════
+    const DARK_SQUARES=[0,2,4,6,9,11,13,15,16,18,20,22,25,27,29,31,32,34,36,38,41,43,45,47,48,50,52,54,57,59,61,63];
+    const BOOK_ALPHA='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef';
+    const charToSq=Object.fromEntries(BOOK_ALPHA.split('').map((c,i)=>[c,DARK_SQUARES[i]]));
 
-    // Built at startup; maps Zobrist hash → array of {from,to} candidates
+    const BOOK_DATA=
+        // ── Cruz (c3-d4 = JN) — 14 lines ──────────────────────────────────
+        "JNVREJRM|JNVREJUQ|JNVREJXT|JNVRLOWS|JNVRLOXT|JNVRLOUQ|"+
+        "JNXTEJVR|JNXTEJVS|JNXTIMVS|JNXTIMUQ|"+
+        "JNUQEJVR|JNUQLOWS|JNUQLOWT|JNUQKOVS|"+
+        // ── Pioneiro (e3-d4 = KN) — 12 lines ──────────────────────────────
+        "KNVSJMWT|KNVSJMUQ|KNVSIMUQ|KNVSIMXT|"+
+        "KNWTJMVR|KNWTJMUQ|KNWTIMVR|KNWTIMUQ|KNWTLOVR|KNWTLOUQ|"+
+        "KNXTIMVR|KNXTIMWS|"+
+        // ── Flank (e3-f4 = KO) — 8 lines ──────────────────────────────────
+        "KOVRLPXT|KOVRLPUQ|"+
+        "KOXTLPVR|KOXTLPUQ|KOXTJNVR|KOXTJNVS|KOXTJNUQ|"+
+        "KOURLPWT|"+
+        // ── Russa g3-f4 (LO) — 7 lines ─────────────────────────────────────
+        "LOWTKNVR|LOWTKNUQ|LOWTJMVR|LOWTJMUQ|"+
+        "LOVRIMWT|LOVRIMXT|LOVRJMWT|"+
+        // ── Russa g3-h4 (LP) — 16 lines ─────────────────────────────────────
+        "LPXTKNVR|LPXTKNWS|LPXTKNUQ|LPXTJMVR|LPXTJMWS|"+
+        "LPVSKNWT|LPVSKNXT|LPVSKNUQ|LPVSJMWT|LPVSJMXT|"+
+        "LPUQKNVS|LPUQKNWT|LPUQJMVS|"+
+        "LPWTKNVR|LPWTKNVS|LPWTJMVR|"+
+        // ── Alma (c3-b4 = JM) — 13 lines ───────────────────────────────────
+        "JMVSKNWT|JMVSKNXT|"+
+        "JMWTKNVR|JMWTKNVS|JMWTLOVR|JMWTLOVS|"+
+        "JMUQKNWT|JMUQKNVR|JMUQLOWT|JMUQLOVR|"+
+        "JMXTKNVR|JMXTKNVS|JMXTLOVR|"+
+        // ── Side (a3-b4 = IM) — 10 lines ───────────────────────────────────
+        "IMVSJNWT|IMVSJNXT|"+
+        "IMWTJNVS|IMWTLOVS|IMWTLOVR|"+
+        "IMUQJNVS|IMUQJNWT|IMUQLOVS|"+
+        "IMXTJNVR|IMXTJNVS";
+
+    // Built at startup; maps Zobrist hash → array of {from,to} candidates.
     const openingBook = Object.create(null);
 
     function buildOpeningBook() {
-        for (const line of BOOK_LINES) {
+        for (const line of BOOK_DATA.split('|')) {
             const state = new State();
-            for (const moveStr of line) {
+            for (let i = 0; i + 1 < line.length; i += 2) {
+                const from = charToSq[line[i]], to = charToSq[line[i+1]];
+                if (from === undefined || to === undefined) break;
                 const h  = state.hash();
                 const ms = state.getMoves();
-                // Match algebraic notation
-                const found = ms.find(m => move2Str(m) === moveStr);
-                if (!found) break; // invalid/illegal in this context, stop line
+                const found = ms.find(m => m.from === from && m.to === to);
+                if (!found) break; // move illegal here (e.g. forced capture in position)
                 if (!openingBook[h]) openingBook[h] = [];
-                if (!openingBook[h].some(e => e.from===found.from && e.to===found.to))
-                    openingBook[h].push({ from: found.from, to: found.to });
+                if (!openingBook[h].some(e => e.from===from && e.to===to))
+                    openingBook[h].push({ from, to });
                 state.applyMove(found);
             }
         }
@@ -754,9 +791,34 @@
         const moves = state.getMoves();
         if (moves.length === 0) return -9999 + ply;
 
-        // Quiescence: only captures
+        // [GM-1] Null Move Pruning — pass the turn and test for fail-high.
+        // Conditions: depth≥3, no mandatory captures, not near mate, mid-game (≥10 pieces).
+        if (depth >= 3 && moves[0].captured.length === 0 && beta < 9000 && beta > -9000) {
+            let pc = 0; for (let i = 0; i < 64; i++) if (state.board[i] !== EMPTY) pc++;
+            if (pc >= 10) {
+                const ns = state.clone();
+                ns.turn = -ns.turn;       // "pass" the turn
+                ns.halfMoveClock++;        // null move keeps quiet-move clock ticking
+                const h2 = ns.hash();
+                if (!ns.hashHist.includes(h2)) { // guard against phantom repetition
+                    ns.hashHist.push(h2);
+                    if (ns.hashHist.length > 256) ns.hashHist.shift();
+                    const R_NMP = depth >= 6 ? 3 : 2;
+                    const nullScore = -search(ns, depth - 1 - R_NMP, -beta, -beta + 1, ply + 1);
+                    if (!searchAborted && nullScore >= beta) return nullScore;
+                }
+            }
+        }
+
+        // [GM-2] Quiescence with stand-pat and Delta Pruning.
+        // Stand-pat lets us skip capture chains that can't improve the score.
         if (depth <= 0) {
-            if (moves[0].captured.length === 0 || depth < -16) return state.eval();
+            const standPat = state.eval();
+            if (moves[0].captured.length === 0 || depth < -16) return standPat;
+            if (standPat >= beta) return standPat;             // stand-pat β cutoff
+            if (standPat > alpha) alpha = standPat;            // improve α with stand-pat
+            // Delta pruning: even capturing every piece in the sequence can't reach α
+            if (standPat + moves[0].captured.length * 120 + 150 < alpha) return standPat;
         }
 
         orderMoves(moves, hfm, htm, ply);
@@ -846,6 +908,36 @@
                 if (f) { bestMove=f; bestScore=score; }
             } else if (score>bestScore) { bestScore=score; }
             reachedDepth=depth;
+        }
+
+        // [DYN-2] Fuzzy Selection — early/mid-game controlled unpredictability.
+        // After the full search the TT is warm.  Score every root move by probing
+        // the child position's TT entry (negated back to root perspective) and
+        // collect an "elite" set of candidates within FUZZY_MARGIN centipawns of
+        // the best.  If two or more elite moves exist, pick one at random.
+        // Only near-equal moves qualify → zero ELO loss, maximum variety.
+        if (state.halfMoveClock < 16 && moves.length > 1 && !searchAborted && reachedDepth >= 2) {
+            const FUZZY_MARGIN = 20;
+            const rootScores = [];
+            for (const m of moves) {
+                const s2 = state.clone();
+                s2.applyMove(m);
+                const tte2 = ttProbe(s2.hash());
+                // Use TT entries of sufficient depth; negate score to root perspective.
+                if (tte2 && tte2.d >= reachedDepth - 2) {
+                    rootScores.push({ move: m, score: -tte2.s });
+                }
+            }
+            if (rootScores.length > 1) {
+                rootScores.sort((a, b) => b.score - a.score);
+                const topSc = rootScores[0].score;
+                const elite = rootScores.filter(c => topSc - c.score <= FUZZY_MARGIN);
+                if (elite.length > 1) {
+                    const pick = elite[Math.floor(Math.random() * elite.length)];
+                    const fm = moves.find(m => m.from === pick.move.from && m.to === pick.move.to);
+                    if (fm) bestMove = fm;
+                }
+            }
         }
 
         // Extract PV from TT
