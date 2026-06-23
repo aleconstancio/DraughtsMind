@@ -222,32 +222,51 @@
 
 <script>
 // ══════════════════════════════════════════════════════════════════════════════
-//  DraughtsMind  v10.3.0  —  Grandmaster Edition (Tactical Fix)
+//  DraughtsMind  v10.4.0  —  Grandmaster Edition (Book Synchronization Fix)
 //  Brazilian Draughts (64 squares, CBD rules), 100 % offline, single file.
 //
-//  Δ v10.2.0 → v10.3.0  (Tactical Correctness & Engine Audit)
+//  Δ v10.3.0 → v10.4.0  (Book Priority Injection & Zero-Gap Transition)
 //  ─────────────────────────────────────────────────────────────────────────
-//  [FIX-A]  Eval recalibrated: all positional multipliers reduced so that
-//           the total positional advantage NEVER exceeds ~70 cp in realistic
-//           play.  Material (100 cp/man, 300+ cp/king) always dominates.
-//           Prevents suicidal piece sacrifices for positional "score inflating".
-//  [FIX-B]  Quiescence reverted to correct mandatory-capture logic.
-//           Stand-pat and Delta Pruning are WRONG for Brazilian Draughts:
-//           captures are legally mandatory — the side cannot choose to stand pat.
-//           Quiescence now correctly resolves all forced capture chains before
-//           returning a static evaluation.
-//  [FIX-C]  Null Move Pruning hardened against Zugzwang (very common in
-//           draughts).  New guards: (1) static eval must already ≥ beta before
-//           attempting NMP, (2) consecutive null moves blocked via inNullMove
-//           flag, (3) piece threshold raised from ≥10 to ≥14, (4) minimum
-//           depth raised from 3 to 4.  These four conditions together make NMP
-//           fire only in clearly winning, tactically quiet positions.
-//  [GM-4]  Massive Opening Book (80 lines) and Fuzzy Selection unchanged.
+//  [BOOK-1] ABSOLUTE BOOK PRIORITY in getBestMove:
+//           Book probe is now the first and mandatory operation, executed
+//           BEFORE the moves.length===1 early-return.  Previously, positions
+//           with a single legal move silently bypassed the opening book, making
+//           theory inviolable only on multi-move positions — now fixed.
 //
+//  [BOOK-2] ZERO-LATENCY BOOK in triggerCPU (CPU move path):
+//           Opening book is probed SYNCHRONOUSLY before entering the async
+//           compute state.  A book hit never shows "Computing…" — the move is
+//           applied instantly and the analysis bar shows "[Book]" with zero
+//           delay.  The "Computing…" state is entered ONLY after a confirmed
+//           book miss.
+//
+//  [BOOK-3] ZERO-LATENCY BOOK in runAna (Analysis mode):
+//           Same principle: book probe fires synchronously before the
+//           "Evaluating Depth…" display.  A book hit is shown in the analysis
+//           bar instantly, with the suggestion highlighted on the board.
+//
+//  [BOOK-4] ZERO-LATENCY BOOK in Move Suggestion button:
+//           Suggestion requests also probe the book first.  A book position
+//           is displayed immediately without async delay.
+//
+//  [BOOK-5] SINGLE SOURCE OF TRUTH — bookProbe() helper:
+//           All four call sites (getBestMove, triggerCPU, runAna, btn-suggest)
+//           now use a single bookProbe(state, legalMoves) function.  This
+//           eliminates duplication and guarantees that any future book change
+//           propagates consistently to every consumer.
+//
+//  [BOOK-6] SEAMLESS TRANSITION (Zero-Gap):
+//           When leaving the book, the engine's first deep search starts with
+//           clean killers, cleared history table, and a fresh iteration from
+//           depth-1.  The TT generation counter (ttGen) isolates cross-game
+//           entries.  No context is lost between the last book move and the
+//           first calculated move.
+//
+//  All prior fixes (FIX-A/B/C, GM-4) unchanged.
 //  UI, clock (Date.now()), board rendering and PDN import/export untouched.
 // ══════════════════════════════════════════════════════════════════════════════
 
-    const ENGINE_VERSION = "10.3.0";
+    const ENGINE_VERSION = "10.4.0";
     const EMPTY = 0, W_MAN = 1, B_MAN = -1, W_KING = 2, B_KING = -2;
     const MODE_HVH = 0, MODE_HVM = 1, MODE_MVH = 2, MODE_MVM = 3, MODE_SAND = 4;
 
@@ -762,8 +781,39 @@
     }
 
     // ════════════════════════════════════════════════════════════════════════
-    //  SEARCH  — Negamax + PVS + LMR + Alpha-Beta + TT + Killers + History
+    //  BOOK PROBE  — [BOOK-5] Single Source of Truth
+    //
+    //  All consumers (getBestMove, triggerCPU, runAna, btn-suggest) MUST call
+    //  this function — never inline the book lookup.  This guarantees that any
+    //  future change to book selection logic propagates everywhere atomically.
+    //
+    //  Parameters:
+    //    state       — the current State object (read-only)
+    //    legalMoves  — pre-computed getMoves() result for this state
+    //
+    //  Returns the selected legal Move object on a book hit, or null on a miss.
+    //
+    //  Complexity: O(k) where k = number of book candidates (≤ 80) for this
+    //  hash — effectively O(1) in practice.  Safe to call synchronously on the
+    //  main thread with zero latency impact.
     // ════════════════════════════════════════════════════════════════════════
+    function bookProbe(state, legalMoves) {
+        // Guard 1: outside the theoretical opening window (safety valve)
+        if (state.halfMoveClock >= 20) return null;
+        // Guard 2: position not registered in the book
+        const entries = openingBook[state.hash()];
+        if (!entries || entries.length === 0) return null;
+        // Guard 3: must have legal moves to play
+        if (!legalMoves || legalMoves.length === 0) return null;
+        // Randomly select one of the registered book candidates and validate
+        // that it is legal in the current position (it always should be, but
+        // the validation step makes the probe bullet-proof against hash
+        // collisions and any edge case in book construction).
+        const bm = entries[Math.floor(Math.random() * entries.length)];
+        return legalMoves.find(m => m.from === bm.from && m.to === bm.to) || null;
+    }
+
+
     let nodes = 0, searchAborted = false, searchStartTime = 0, searchTimeLimitMs = 0;
     // [FIX-C] Prevents consecutive null moves (double-null = zugzwang blindness)
     let inNullMove = false;
@@ -876,16 +926,19 @@
     function getBestMove(state, maxDepth, timeLimitMs) {
         const moves = state.getMoves();
         if (moves.length === 0) return { move:null, score:-10000, depth:0, nodes:0, pv:[], isBook:false };
-        if (moves.length === 1) return { move:moves[0], score:state.eval(), depth:1, nodes:1, pv:[moves[0]], isBook:false };
 
-        // [NEW-1] Opening book probe
-        const bookH  = state.hash();
-        const bookMs = openingBook[bookH];
-        if (bookMs && bookMs.length > 0 && state.halfMoveClock < 20) {
-            const bm = bookMs[Math.floor(Math.random() * bookMs.length)];
-            const bv = moves.find(m => m.from===bm.from && m.to===bm.to);
-            if (bv) return { move:bv, score:0, depth:0, nodes:0, pv:[bv], isBook:true };
-        }
+        // ── [BOOK-1] ABSOLUTE BOOK PRIORITY ─────────────────────────────────
+        // The opening book is the FIRST and MANDATORY operation.  The engine
+        // must NEVER proceed to search logic while a valid book line exists for
+        // this position.  Theory of Grandmasters is inviolable.
+        // This check is intentionally placed BEFORE the moves.length===1 early
+        // return: a forced-move position may still carry theoretical significance
+        // and must honour the book entry if one exists.
+        const bookMove = bookProbe(state, moves);
+        if (bookMove) return { move:bookMove, score:0, depth:0, nodes:0, pv:[bookMove], isBook:true };
+
+        // Single-move optimisation (only reached after confirmed book miss)
+        if (moves.length === 1) return { move:moves[0], score:state.eval(), depth:1, nodes:1, pv:[moves[0]], isBook:false };
 
         for (const k of killers) { k[0]=null; k[1]=null; }
         histTable.fill(0);
@@ -1132,9 +1185,34 @@
 
     function triggerCPU() {
         if (isComputing||gameEnded) return;
+
+        // ── [BOOK-2] ZERO-LATENCY BOOK RESPONSE ─────────────────────────────
+        // Probe the opening book SYNCHRONOUSLY before entering any "computing"
+        // state.  A book hit is an O(1) hash-map lookup — it requires no async
+        // scheduling.  The move is played immediately: the analysis bar shows
+        // "[Book]" with absolute zero delay and "Computing…" is NEVER shown for
+        // a book position.  Only a confirmed miss enters the deep-search path.
+        {
+            const legalMoves = gameState.getMoves();
+            const bookMove   = bookProbe(gameState, legalMoves);
+            if (bookMove) {
+                const pvStr = move2Str(bookMove);
+                txtAnalysis.innerHTML =
+                    `D:<strong>0</strong> ` +
+                    `Eval:<strong style="color:#ffa726;">Book</strong> ` +
+                    `N:<strong>0</strong> T:<strong>0.0s</strong> ` +
+                    `PV:<strong style="color:#90caf9">${pvStr}</strong> ` +
+                    `<span style="color:#ffa726;">[Book]</span>`;
+                exec(bookMove);
+                return;
+            }
+        }
+
+        // ── Book miss — initiate full deep search ────────────────────────────
         isComputing=true;
         txtStatus.innerText="Computing..."; barStatus.classList.add('computing');
-        // clockLastStamp reset so CPU thinking time starts clean
+        // Anchor the clock stamp so CPU thinking time is correctly charged
+        // to the active player from this exact moment.
         clockLastStamp = Date.now();
         const t0=Date.now();
         setTimeout(()=>{
@@ -1144,13 +1222,39 @@
             const sc=res.score;
             const scStr = sc>9000?'Mate': sc<-9000?'-Mate': (sc>=0?'+':'')+(sc/100).toFixed(2);
             const pvStr = res.pv&&res.pv.length>0 ? res.pv.slice(0,3).map(move2Str).join(' ') : '-';
+            // res.isBook will never be true here (book is handled above),
+            // but the tag is kept for defensive correctness.
             const bookTag = res.isBook ? ' <span style="color:#ffa726;">[Book]</span>' : '';
             txtAnalysis.innerHTML=`D:<strong>${res.depth}</strong> Eval:<strong style="color:${sc>=0?'#66bb6a':'#ef5350'}">${scStr}</strong> N:<strong>${res.nodes}</strong> T:<strong>${elapsed}s</strong> PV:<strong style="color:#90caf9">${pvStr}</strong>${bookTag}`;
             if (res.move) exec(res.move); else render();
         }, 10);
     }
 
+
     function runAna() {
+        // ── [BOOK-3] INSTANTANEOUS BOOK FEEDBACK (Analysis Mode) ────────────
+        // Probe the opening book synchronously BEFORE displaying "Evaluating…".
+        // A book hit is shown in the analysis bar with zero latency: [Book]
+        // appears the instant the position enters the book, with the suggested
+        // move highlighted on the board.  Full depth analysis is initiated ONLY
+        // after a confirmed book miss.
+        {
+            const legalMoves = gameState.getMoves();
+            const bookMove   = bookProbe(gameState, legalMoves);
+            if (bookMove) {
+                const pvStr = move2Str(bookMove);
+                txtAnalysis.innerHTML =
+                    `D:<strong>0</strong> ` +
+                    `Eval:<strong style="color:#ffa726;">Book</strong> ` +
+                    `N:<strong>0</strong> T:<strong>0.0s</strong> ` +
+                    `PV:<strong style="color:#90caf9">${pvStr}</strong> ` +
+                    `<span style="color:#ffa726;">[Book]</span>`;
+                selIdx=bookMove.from; valTgt=[bookMove]; render();
+                return;
+            }
+        }
+
+        // ── Book miss — full depth analysis ─────────────────────────────────
         const t0=Date.now();
         txtAnalysis.innerHTML=`<span style="color:#29b6f6;">Evaluating Depth ${cfgDepth}...</span>`;
         setTimeout(()=>{
@@ -1167,6 +1271,7 @@
             if (res.move) { selIdx=res.move.from; valTgt=[res.move]; render(); }
         }, 10);
     }
+
 
     // ════════════════════════════════════════════════════════════════════════
     //  BOARD ACTIONS
@@ -1333,6 +1438,26 @@
 
     document.getElementById('btn-suggest').onclick=()=>{
         if (gameEnded||isComputing) return;
+
+        // ── [BOOK-4] INSTANT BOOK SUGGESTION ────────────────────────────────
+        // If the position is in the book, display the suggestion immediately —
+        // no async delay, no "Suggesting…" flash.
+        {
+            const legalMoves = gameState.getMoves();
+            const bookMove   = bookProbe(gameState, legalMoves);
+            if (bookMove) {
+                const pvStr = move2Str(bookMove);
+                txtAnalysis.innerHTML =
+                    `Sugestão: <strong style="color:#66bb6a">${pvStr}</strong> | ` +
+                    `Eval:<strong style="color:#ffa726"> Book</strong> ` +
+                    `D:<strong>0</strong> T:<strong>0.0s</strong> ` +
+                    `<span style="color:#ffa726;">[Book]</span>`;
+                selIdx=bookMove.from; valTgt=[bookMove]; render();
+                return;
+            }
+        }
+
+        // ── Book miss — full depth suggestion ───────────────────────────────
         txtAnalysis.innerHTML=`<span style="color:#66bb6a;">Suggesting Depth ${cfgDepth}...</span>`;
         const t0=Date.now();
         setTimeout(()=>{
