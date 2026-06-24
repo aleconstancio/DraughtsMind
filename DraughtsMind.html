@@ -36,9 +36,9 @@
             --text-secondary: #8591a8;
             --text-muted:     #48526a;
 
-            --sq-light:       #e8d5a3;
-            --sq-dark:        #63381a;
-            --board-border:   #1a0d04;
+            --sq-light:       #dcd0a5;
+            --sq-dark:        #4a9140;
+            --board-border:   #4a9140;
 
             --radius-sm:      5px;
             --radius-md:      9px;
@@ -99,16 +99,12 @@
             display: grid;
             grid-template-columns: repeat(8, 12.5%);
             grid-template-rows: repeat(8, 12.5%);
-            border: clamp(4px, 1.1vw, 7px) solid var(--board-border);
-            outline: 1px solid var(--gold-dim);
-            outline-offset: -1px;
+            border: 18px solid var(--board-border);
+            outline: 1px solid rgba(255,255,255,0.55);
+            outline-offset: -18px;
             background-color: var(--sq-dark);
             border-radius: var(--radius-sm);
-            box-shadow:
-                0 0 0 1px var(--gold-dim),
-                0 16px 50px rgba(0,0,0,0.9),
-                0 4px 20px rgba(0,0,0,0.6),
-                inset 0 1px 0 rgba(255,255,255,0.04);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
             transition: transform var(--t-slow);
         }
 
@@ -126,11 +122,11 @@
 
         .sq-dark.highlight {
             box-shadow: inset 0 0 0 clamp(2px, 0.5vw, 4px) var(--blue-bright);
-            background-color: #7a4220;
+            background-color: #5ca855;
         }
         .sq-dark.suggestion {
             box-shadow: inset 0 0 0 clamp(2px, 0.5vw, 4px) var(--green);
-            background-color: #5a3618;
+            background-color: #3d8038;
         }
         .sq-dark.suggestion::after {
             content: '';
@@ -144,7 +140,7 @@
         }
         .sq-dark.last-move {
             box-shadow: inset 0 0 0 clamp(2px, 0.5vw, 4px) var(--gold-bright);
-            background-color: #6a3c14;
+            background-color: #4a8a40;
         }
 
         /* ── Pieces ───────────────────────────────────────────────────────── */
@@ -157,36 +153,25 @@
             transition: transform var(--t-fast), box-shadow var(--t-fast);
         }
 
-        .piece:hover  { transform: scale(1.07); }
+        .piece:hover  { }
         .piece:active { transform: scale(0.92); }
 
         .board.rotated .piece        { transform: rotate(180deg); }
-        .board.rotated .piece:hover  { transform: rotate(180deg) scale(1.07); }
+        .board.rotated .piece:hover  { transform: rotate(180deg); }
         .board.rotated .piece:active { transform: rotate(180deg) scale(0.92); }
 
         /* White piece */
         .piece.white {
-            background: radial-gradient(circle at 32% 28%,
-                #edeae4 0%, #d2cfc8 35%, #b0ada6 65%, #919088 100%);
-            border: 2px solid rgba(110,108,102,0.80);
-            box-shadow:
-                0 5px 12px rgba(0,0,0,0.55),
-                0 1px 4px rgba(0,0,0,0.35),
-                inset 0 2px 4px rgba(255,255,255,0.50),
-                inset 0 -2px 4px rgba(0,0,0,0.22);
+            background: #eeeeee;
+            border: 1px solid #bbb;
+            box-shadow: inset -2px -2px 4px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.25);
         }
 
-        /* Black piece — matte tournament finish */
+        /* Red piece */
         .piece.black {
-            background: radial-gradient(circle at 38% 34%,
-                #282828 0%, #1a1a1a 45%, #111111 72%, #0a0a0a 100%);
-            border: 2px solid rgba(60,57,54,0.75);
-            box-shadow:
-                0 5px 14px rgba(0,0,0,0.75),
-                0 1px 4px rgba(0,0,0,0.55),
-                inset 0 1px 2px rgba(120,116,110,0.08),
-                inset 0 -2px 4px rgba(0,0,0,0.50),
-                0 0 0 1px rgba(80,76,72,0.22);
+            background: #dd5555;
+            border: 1px solid #bb3333;
+            box-shadow: inset -2px -2px 4px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.25);
         }
 
         /* ── King crown — large and dominant ─────────────────────────────── */
@@ -564,6 +549,40 @@
             #history { height: 90px; }
             .status-bar { margin-top: 0.5rem; }
             .version-badge { font-size: 0.57rem; }
+        }
+
+        /* ── Coordinates (children of .board, survive render()) ──────────── */
+        .coord-letter {
+            position: absolute;
+            bottom: -18px;
+            height: 18px;
+            width: 12.5%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: bold;
+            color: rgba(255,255,255,0.95);
+            pointer-events: none;
+            z-index: 20;
+        }
+        .coord-number {
+            position: absolute;
+            left: -18px;
+            width: 18px;
+            height: 12.5%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: bold;
+            color: rgba(255,255,255,0.95);
+            pointer-events: none;
+            z-index: 20;
+        }
+        .board.rotated .coord-letter,
+        .board.rotated .coord-number {
+            transform: rotate(180deg);
         }
     </style>
 </head>
@@ -1866,12 +1885,30 @@
     // ── DOM ───────────────────────────────────────────────────────────────────
     function initDOM() {
         const board = document.getElementById('board'); board.innerHTML='';
+        // Build the 64 squares
         for (let r=7; r>=0; r--) for (let c=0; c<8; c++) {
             const idx=r*8+c, dark=(r+c)%2===0;
             const sq=document.createElement('div');
             sq.className=`square ${dark?'sq-dark':'sq-light'}`;
             sq.id=`sq-${idx}`; sq.onclick=()=>onSquareClick(idx);
             board.appendChild(sq);
+        }
+        // Inject letter coords (A–H) into the board's bottom border.
+        // These are direct children of the board so render() cannot overwrite them.
+        for (let c=0; c<8; c++) {
+            const el=document.createElement('div');
+            el.className='coord-letter';
+            el.textContent=String.fromCharCode(65+c);
+            el.style.left=(c*12.5)+'%';
+            board.appendChild(el);
+        }
+        // Inject number coords (1–8) into the board's left border.
+        for (let r=0; r<8; r++) {
+            const el=document.createElement('div');
+            el.className='coord-number';
+            el.textContent=(r+1).toString();
+            el.style.top=((7-r)*12.5)+'%';
+            board.appendChild(el);
         }
     }
 
