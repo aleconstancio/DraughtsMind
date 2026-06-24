@@ -36,9 +36,9 @@
             --text-secondary: #8591a8;
             --text-muted:     #48526a;
 
-            --sq-light:       #dcd0a5;
-            --sq-dark:        #4a9140;
-            --board-border:   #4a9140;
+            --sq-light:       #f0f3e3;
+            --sq-dark:        #2cb263;
+            --board-border:   #2cb263;
 
             --radius-sm:      5px;
             --radius-md:      9px;
@@ -121,12 +121,12 @@
         .sq-dark  { background-color: var(--sq-dark); }
 
         .sq-dark.highlight {
-            box-shadow: inset 0 0 0 clamp(2px, 0.5vw, 4px) var(--blue-bright);
-            background-color: #5ca855;
+            box-shadow: inset 0 0 0 clamp(4px, 1vw, 8px) #71cc8c;
+            background-color: #f0f3e3;
         }
         .sq-dark.suggestion {
-            box-shadow: inset 0 0 0 clamp(2px, 0.5vw, 4px) var(--green);
-            background-color: #3d8038;
+            box-shadow: inset 0 0 0 1px #000000;
+            background-color: #2cb263;
         }
         .sq-dark.suggestion::after {
             content: '';
@@ -134,13 +134,13 @@
             transform: translate(-50%, -50%);
             width: 28%; height: 28%;
             border-radius: 50%;
-            background: var(--green);
+            background: #71cc8c;
             opacity: 0.55;
             pointer-events: none;
         }
         .sq-dark.last-move {
             box-shadow: inset 0 0 0 clamp(2px, 0.5vw, 4px) var(--gold-bright);
-            background-color: #4a8a40;
+            background-color: #3aac6c;
         }
 
         /* ── Pieces ───────────────────────────────────────────────────────── */
@@ -162,15 +162,15 @@
 
         /* White piece */
         .piece.white {
-            background: #eeeeee;
-            border: 1px solid #bbb;
+            background: #ffffff;
+            border: 1px solid #cccccc;
             box-shadow: inset -2px -2px 4px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.25);
         }
 
         /* Red piece */
         .piece.black {
-            background: #dd5555;
-            border: 1px solid #bb3333;
+            background: #e20a08;
+            border: 1px solid #c00807;
             box-shadow: inset -2px -2px 4px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.25);
         }
 
