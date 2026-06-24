@@ -166,26 +166,27 @@
 
         /* White piece */
         .piece.white {
-            background: radial-gradient(circle at 30% 26%,
-                #ffffff 0%, #ebebeb 30%, #cccccc 60%, #aaaaaa 100%);
-            border: 2px solid rgba(160,160,160,0.55);
+            background: radial-gradient(circle at 32% 28%,
+                #edeae4 0%, #d2cfc8 35%, #b0ada6 65%, #919088 100%);
+            border: 2px solid rgba(110,108,102,0.80);
             box-shadow:
                 0 5px 12px rgba(0,0,0,0.55),
                 0 1px 4px rgba(0,0,0,0.35),
-                inset 0 3px 5px rgba(255,255,255,0.95),
-                inset 0 -2px 4px rgba(0,0,0,0.18);
+                inset 0 2px 4px rgba(255,255,255,0.50),
+                inset 0 -2px 4px rgba(0,0,0,0.22);
         }
 
         /* Black piece */
         .piece.black {
-            background: radial-gradient(circle at 30% 26%,
-                #505050 0%, #2c2c2c 38%, #141414 68%, #080808 100%);
-            border: 2px solid rgba(0,0,0,0.85);
+            background: radial-gradient(circle at 32% 28%,
+                #4a4a4a 0%, #2a2a2a 40%, #141414 70%, #0a0a0a 100%);
+            border: 2px solid rgba(85,82,78,0.65);
             box-shadow:
                 0 5px 12px rgba(0,0,0,0.7),
                 0 1px 4px rgba(0,0,0,0.5),
-                inset 0 3px 5px rgba(130,130,130,0.28),
-                inset 0 -2px 4px rgba(0,0,0,0.42);
+                inset 0 2px 3px rgba(160,155,148,0.16),
+                inset 0 -2px 4px rgba(0,0,0,0.42),
+                0 0 0 1px rgba(110,105,98,0.30);
         }
 
         /* ── King crown — large and dominant ─────────────────────────────── */
@@ -804,6 +805,7 @@
             this.halfMoveClock = 0;
             this.endgameClock  = 0;
             this.isEndgame     = false;
+            this.endgameLimit  = 10;
             this.timeW = 0; this.timeB = 0;
             this.init();
         }
@@ -817,7 +819,7 @@
                 }
             }
             this.turn = 1; this.hashHist = [this.hash()];
-            this.halfMoveClock = 0; this.endgameClock = 0; this.isEndgame = false;
+            this.halfMoveClock = 0; this.endgameClock = 0; this.isEndgame = false; this.endgameLimit = 10;
         }
 
         clone() {
@@ -828,6 +830,7 @@
             s.halfMoveClock = this.halfMoveClock;
             s.endgameClock  = this.endgameClock;
             s.isEndgame     = this.isEndgame;
+            s.endgameLimit  = this.endgameLimit;
             s.timeW         = this.timeW;
             s.timeB         = this.timeB;
             return s;
@@ -932,26 +935,51 @@
                 else if (sq === B_KING) bK++; else if (sq === B_MAN) bP++;
             }
 
-            const isEndgameCombo = (() => {
+            // Returns 0 (not endgame), 4 (1D×1D: 2-move rule), or 10 (other: 5-move rule)
+            const endgameLimit = (() => {
                 if (wP === 0 && bP === 0) {
-                    if (wK <= 2 && bK <= 2 && wK >= 1 && bK >= 1) return true;
+                    // Art.59.D: 1D×1D — empate em 2 lances (4 meios-lances)
+                    if (wK === 1 && bK === 1) return 4;
+                    if (wK <= 2 && bK <= 2 && wK >= 1 && bK >= 1) return 10;
                     if ((wK === 3 && bK === 1) || (bK === 3 && wK === 1)) {
                         const loneColor = wK === 1 ? W_KING : B_KING;
                         for (let i = 0; i < 64; i++)
-                            if (this.board[i] === loneColor && (i >> 3) === (i & 7)) return true;
-                        return false;
+                            if (this.board[i] === loneColor && (i >> 3) === (i & 7)) return 10;
+                        return 0;
                     }
                 }
-                if (wP === 0 && bP === 1 && wK >= 1 && bK >= 1 && wK <= 2) return true;
-                if (bP === 0 && wP === 1 && bK >= 1 && wK >= 1 && bK <= 2) return true;
-                return false;
+                // Art.100 (64 casas): 2D+1P vs 1D (dama solitária na grande diagonal a1-h8)
+                if (wP === 1 && wK === 2 && bK === 1 && bP === 0) {
+                    for (let i = 0; i < 64; i++)
+                        if (this.board[i] === B_KING && (i >> 3) === (i & 7)) return 10;
+                    return 0;
+                }
+                if (bP === 1 && bK === 2 && wK === 1 && wP === 0) {
+                    for (let i = 0; i < 64; i++)
+                        if (this.board[i] === W_KING && (i >> 3) === (i & 7)) return 10;
+                    return 0;
+                }
+                // Art.100 (64 casas): 1D+2P vs 1D (dama solitária na grande diagonal a1-h8)
+                if (wP === 0 && bP === 2 && wK === 1 && bK === 1) {
+                    for (let i = 0; i < 64; i++)
+                        if (this.board[i] === W_KING && (i >> 3) === (i & 7)) return 10;
+                    return 0;
+                }
+                if (bP === 0 && wP === 2 && bK === 1 && wK === 1) {
+                    for (let i = 0; i < 64; i++)
+                        if (this.board[i] === B_KING && (i >> 3) === (i & 7)) return 10;
+                    return 0;
+                }
+                if (wP === 0 && bP === 1 && wK >= 1 && bK >= 1 && wK <= 2) return 10;
+                if (bP === 0 && wP === 1 && bK >= 1 && wK >= 1 && bK <= 2) return 10;
+                return 0;
             })();
 
-            if (isEndgameCombo) {
-                if (!this.isEndgame) { this.isEndgame = true; this.endgameClock = 0; }
+            if (endgameLimit > 0) {
+                if (!this.isEndgame) { this.isEndgame = true; this.endgameClock = 0; this.endgameLimit = endgameLimit; }
                 else this.endgameClock++;
             } else {
-                this.isEndgame = false; this.endgameClock = 0;
+                this.isEndgame = false; this.endgameClock = 0; this.endgameLimit = 10;
             }
 
             this.turn *= -1;
@@ -964,8 +992,10 @@
         checkDraw() {
             if (this.halfMoveClock >= 40)
                 return "Empate: 20 lances consecutivos de damas sem captura ou movimento de pedra (CBD).";
-            if (this.isEndgame && this.endgameClock >= 10)
-                return "Empate: limite de 5 lances no final (CBD Art.99/100).";
+            if (this.isEndgame && this.endgameClock >= this.endgameLimit)
+                return this.endgameLimit === 4
+                    ? "Empate: limite de 2 lances em 1 Dama × 1 Dama (CBD Art.59.D)."
+                    : "Empate: limite de 5 lances no final (CBD Art.99/100).";
             if (this.hashHist.length >= 9) {
                 const cur = this.hash(); let cnt = 0;
                 for (const h of this.hashHist) if (h === cur) cnt++;
@@ -1735,38 +1765,49 @@
     }
 
     function renderHist() {
-        const h=document.getElementById('history');
-        h.innerHTML=generateSequence(rootNode, 0, true);
-        const a=h.querySelector('.active-move');
-        if (a) a.scrollIntoView({ block:'nearest' });
+        const h = document.getElementById('history');
+        h.innerHTML = '';
+        appendSequenceDOM(rootNode, 0, h);
+        const a = h.querySelector('.active-move');
+        if (a) a.scrollIntoView({ block: 'nearest' });
     }
 
-    function generateSequence(node, plyCount, isHTML) {
-        let out='', curr=node, ply=plyCount, prevHadVars=false;
-        while (curr.children.length>0) {
-            const main=curr.children[0], isWhite=(ply%2===0);
-            const hasVars=curr.children.length>1;
-            const moveNum=Math.floor(ply/2)+1;
-            if (isWhite)
-                out += isHTML ? `<span class="ply-num">${moveNum}.</span> ` : `${moveNum}. `;
-            else if (curr===node||prevHadVars)
-                out += isHTML ? `<span class="ply-num">${moveNum}...</span> ` : `${moveNum}... `;
-            if (isHTML) {
-                const cls=(main===currentNode)?'active-move':'move-link';
-                out+=`<span class="${cls}" onclick="navToId(${main.id})">${main.moveStr}</span> `;
-            } else out+=main.moveStr+' ';
-            for (let i=1;i<curr.children.length;i++) {
-                const v=curr.children[i];
-                out+='( ';
-                out+= isHTML ? `<span class="ply-num">${moveNum}${isWhite?'.':'...'}</span> ` : `${moveNum}${isWhite?'.':'...'} `;
-                const vc=(v===currentNode)?'active-move':'move-link';
-                out+= isHTML ? `<span class="${vc}" onclick="navToId(${v.id})">${v.moveStr}</span> ` : v.moveStr+' ';
-                out+=generateSequence(v, ply+1, isHTML);
-                out+=') ';
+    function appendSequenceDOM(node, plyCount, container) {
+        const mkSpan = (cls, text) => {
+            const s = document.createElement('span');
+            s.className = cls; s.textContent = text; return s;
+        };
+        const txt = t => document.createTextNode(t);
+        let curr = node, ply = plyCount, prevHadVars = false;
+        while (curr.children.length > 0) {
+            const main = curr.children[0], isWhite = (ply % 2 === 0);
+            const hasVars = curr.children.length > 1;
+            const moveNum = Math.floor(ply / 2) + 1;
+            if (isWhite) {
+                container.appendChild(mkSpan('ply-num', `${moveNum}.`));
+                container.appendChild(txt(' '));
+            } else if (curr === node || prevHadVars) {
+                container.appendChild(mkSpan('ply-num', `${moveNum}...`));
+                container.appendChild(txt(' '));
             }
-            prevHadVars=hasVars; curr=main; ply++;
+            const ms = mkSpan((main === currentNode) ? 'active-move' : 'move-link', main.moveStr);
+            ms.onclick = () => navToId(main.id);
+            container.appendChild(ms);
+            container.appendChild(txt(' '));
+            for (let i = 1; i < curr.children.length; i++) {
+                const v = curr.children[i];
+                container.appendChild(txt('( '));
+                container.appendChild(mkSpan('ply-num', `${moveNum}${isWhite ? '.' : '...'}`));
+                container.appendChild(txt(' '));
+                const vs = mkSpan((v === currentNode) ? 'active-move' : 'move-link', v.moveStr);
+                vs.onclick = () => navToId(v.id);
+                container.appendChild(vs);
+                container.appendChild(txt(' '));
+                appendSequenceDOM(v, ply + 1, container);
+                container.appendChild(txt(') '));
+            }
+            prevHadVars = hasVars; curr = main; ply++;
         }
-        return out;
     }
 
     function popModal(title, desc) {
@@ -2161,8 +2202,6 @@
     initDOM();
     resetBoard();
 
-    // Log de diagnóstico
-    console.log(`DraughtsMind v${ENGINE_VERSION} | Livro: ${bookMap.size} posições únicas | TT: ${TT_SIZE} entradas`);
 </script>
 </body>
 </html>
