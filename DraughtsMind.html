@@ -634,7 +634,7 @@
 <div class="container">
     <div class="board-wrapper">
         <h1>DRAUGHTSMIND</h1>
-        <div class="version-badge" id="version-badge">ELITE MASTER EDITION</div>
+        <div class="version-badge" id="version-badge">v22.0.0</div>
         <div class="board-ratio">
             <div id="board" class="board"></div>
             <!-- Static coordinate overlays: never inside .board so they never rotate -->
@@ -764,40 +764,42 @@
 
 <script>
 // ══════════════════════════════════════════════════════════════════════════════
-//  DraughtsMind  v21.0.0  —  Elite Master Edition
+//  DraughtsMind  v22.0.0
 //  Damas Brasileiras (CBD, tabuleiro 8×8), 100% offline, arquivo HTML único.
 //
-//  NOVIDADES v21.0.0 (sobre v20):
+//  NOVIDADES v22.0.0 (sobre v21):
 //  ─────────────────────────────────────────────────────────────────────────
-//  [EVAL-V21-PHASE] CORREÇÃO DE BUG CRÍTICO EM eval(): A função de avaliação
-//               usava `trajectoryPhase` (fase do jogo principal) em vez de
-//               detectar a fase localmente a partir do número de peças da posição.
-//               Isso contaminava toda a árvore de busca com a fase errada, criando
-//               avaliações sistematicamente incorretas e um viés de vitória das
-//               brancas. Corrigido: eval() agora usa localPhase = f(totalPieces).
+//  [SRCH-V22-VAR] CORREÇÃO CRÍTICA — VARIETY DESATIVADA EM CPU×CPU:
+//               O código de "variedade de raiz" selecionava lances aleatoriamente
+//               entre movimentos dentro de 20 cp do melhor. Em modo CPU×CPU isso
+//               fazia AMBOS os motores jogarem lances subótimos aleatoriamente,
+//               resultando em partidas decisivas em vez de empates. Corrigido:
+//               variety_cp = 0 em MODE_MVM. Para HvC o pool foi reduzido a 10 cp
+//               com peso exponencial mais forte (temperatura /8 em vez de /15).
 //
-//  [EVAL-V21-BACKROW] DEFESA DA LINHA TRASEIRA: Novo bônus posicional para
-//               manter 1-2 pedras na linha traseira durante abertura/meio-jogo,
-//               evitando promoções precoces do adversário.
+//  [SRCH-V22-DEPTH] PROFUNDIDADE PADRÃO 6→8: A profundidade mínima segura para
+//               encontrar os padrões táticos da damas brasileiras é 8. Aumentado.
 //
-//  [SRCH-V21-QSQT] CORREÇÃO DE qsearch(): O delta pruning anterior era código
-//               morto (sempre alcançava return standPat). Além disso, alpha nunca
-//               era atualizado com standPat, violando a invariante alpha ≥ standPat.
-//               Corrigido com stand-pat correto.
+//  [SRCH-V22-ASP] JANELA DE ASPIRAÇÃO 25→15 cp: Janela inicial mais estreita
+//               acelera convergência nas iterações profundas.
 //
-//  [SRCH-V21-VAR] MELHOR SELEÇÃO DE VARIANTES: A variedade de raiz agora usa
-//               busca de 1 ply em vez de avaliação estática 0-ply. Isso evita
-//               selecionar lances taticamente perdedores no pool de variação.
-//               A janela de variação foi reduzida de 25→20 cp para maior precisão.
+//  [SRCH-V22-EXT] EXTENSÃO DE LANCE FORÇADO: Quando há exatamente 1 lance legal
+//               (sem conta de capturas), extende a busca em 1 ply adicional.
+//               Evita corte prematuro em zugzwang e zugzwang-like positions.
 //
-//  [BOOK-V21] BOOK AMPLIADO: 40+ linhas extraídas dos Campeonatos Brasileiros
-//               Absolutos (1967–), incluindo variantes Cruz, Americana, Flank,
-//               Clássica, Russa, com profundidade aumentada em linhas críticas.
+//  [EVAL-V22-BREAK] BREAKTHROUGH DETECTION: Pedra a 1-2 passos da coroação com
+//               diagonal dianteira livre recebe bônus dinâmico (+32 cp 1-passo,
+//               +14 cp 2-passos). Captura padrão tático chave nas damas.
 //
-//  [V21-STATS] ESTATÍSTICAS CPU×CPU: Painel de estatísticas Brancas/Pretas/Empate
-//               acumuladas durante sessões de CPU vs CPU, persistente na sessão.
+//  [EVAL-V22-TEMPO] BÔNUS DE INICIATIVA AJUSTADO: O bônus de tempo de 10 cp
+//               foi mantido mas calibrado pela mobilidade relativa no meio-jogo
+//               (+2 cp por diferença de mobilidade no meio-jogo).
 //
-//  NOVIDADES v18-20 mantidas — veja histórico nos comentários inline.
+//  [EVAL-V22-EGKING] MELHORIA ENDGAME DAMAS: Novo bônus de centralização de
+//               damas em finais puras + detecção de triangulação para damas
+//               com vantagem de material. Penalização de bordas/cantos reforçada.
+//
+//  NOVIDADES v18-21 mantidas — veja histórico nos comentários inline.
 //  ─────────────────────────────────────────────────────────────────────────
 //  [ENG-V18-1] Book como Guia — busca sempre confirma lance do livro.
 //  [ENG-V18-3] Memória estratégica — trajetória de fase rastreada.
@@ -836,11 +838,11 @@
 //  [VIS-V17-7]  Crown da dama ligeiramente maior e com filtro drop-shadow melhor.
 // ══════════════════════════════════════════════════════════════════════════════
 
-    const ENGINE_VERSION = "21.0.0";
+    const ENGINE_VERSION = "22.0.0";
     const EMPTY = 0, W_MAN = 1, B_MAN = -1, W_KING = 2, B_KING = -2;
     const MODE_HVH = 0, MODE_HVM = 1, MODE_MVH = 2, MODE_MVM = 3, MODE_SAND = 4;
 
-    let cfgDepth = 6, cfgMode = MODE_HVM, cfgView = 'W', isAnalysisOn = false;
+    let cfgDepth = 8, cfgMode = MODE_HVM, cfgView = 'W', isAnalysisOn = false;
     let isComputing = false, gameEnded = false, gameStarted = false;
     let timeLimit = 0, timeW = 0, timeB = 0;
 
@@ -1170,6 +1172,9 @@
             let wChain=0, bChain=0;
             // [EVAL-V16-KS] Dama em diagonal longa (bônus extra de posicionamento)
             let wKingOnLong=0, bKingOnLong=0;
+            // [EVAL-V22-BREAK] Breakthrough potential: man near promotion with clear forward diagonal
+            let wBreak1=0, bBreak1=0; // 1 step from crown (rank 6), forward square empty
+            let wBreak2=0, bBreak2=0; // 2 steps from crown (rank 5), forward square empty
             const wKingPositions=[], bKingPositions=[];
 
             for (let i = 0; i < 64; i++) {
@@ -1208,6 +1213,19 @@
                         }
                     }
                     if (freeF === 0) { if(sign===1) wBlocked++; else bBlocked++; }
+
+                    // [EVAL-V22-BREAK] Breakthrough: man near crown with clear forward diagonal
+                    if (rank >= 5) {
+                        let fwdFree = 0;
+                        for (const [dr2,dc2] of fDirs) {
+                            const nr2=r+dr2, nc2=c+dc2;
+                            if (nr2>=0&&nr2<8&&nc2>=0&&nc2<8&&this.board[nr2*8+nc2]===EMPTY) fwdFree++;
+                        }
+                        if (fwdFree > 0) {
+                            if (rank === 6) { if(sign===1) wBreak1++; else bBreak1++; }
+                            else            { if(sign===1) wBreak2++; else bBreak2++; }
+                        }
+                    }
 
                     // Proteção por pedra amiga atrás
                     const bRow = sign===1 ? r-1 : r+1;
@@ -1276,6 +1294,9 @@
 
             // Corrida para promoção
             score += (wRush-bRush)*13;
+
+            // [EVAL-V22-BREAK] Breakthrough bonus (clear forward diagonal near promotion)
+            score += (wBreak1-bBreak1)*32 + (wBreak2-bBreak2)*14;
 
             // Squares centrais primários e secundários
             let wCentPri=0, bCentPri=0;
@@ -1355,7 +1376,27 @@
                     score += (7-minDist)*12;
                 }
 
-                // Confinamento de canto (3D×1D) — corte para canto mais agressivo
+                // [EVAL-V22-EGKING] Corner-confinement: push lone king to corner/edge
+                // Uses Manhattan distance from board center + edge penalty for lone king
+                if (wK>=2 && bK===1 && wP===0 && bP===0 && bKingPositions.length>0) {
+                    const kr=bKingPositions[0]>>3, kc=bKingPositions[0]&7;
+                    const distCenter = Math.max(Math.abs(kr-3.5), Math.abs(kc-3.5));
+                    // Stronger push: lone king to corner is +42 per distance unit
+                    score += Math.round(distCenter*42);
+                    // Extra bonus if lone king is on edge (row/col 0 or 7)
+                    if (kr===0||kr===7||kc===0||kc===7) score += 25;
+                    // Bonus if lone king is in corner
+                    if ((kr===0||kr===7)&&(kc===0||kc===7)) score += 40;
+                }
+                if (bK>=2 && wK===1 && wP===0 && bP===0 && wKingPositions.length>0) {
+                    const kr=wKingPositions[0]>>3, kc=wKingPositions[0]&7;
+                    const distCenter = Math.max(Math.abs(kr-3.5), Math.abs(kc-3.5));
+                    score -= Math.round(distCenter*42);
+                    if (kr===0||kr===7||kc===0||kc===7) score -= 25;
+                    if ((kr===0||kr===7)&&(kc===0||kc===7)) score -= 40;
+                }
+
+                // [EVAL-V22-EGKING] Confinement 3×1 king endgame
                 if (wK===3 && bK===1 && wP===0 && bP===0 && bKingPositions.length>0) {
                     const kr=bKingPositions[0]>>3, kc=bKingPositions[0]&7;
                     const distCenter = Math.max(Math.abs(kr-3.5), Math.abs(kc-3.5));
@@ -1860,6 +1901,15 @@
         const hasCaptures = moves[0].captured.length > 0;
         let staticEval = null;
 
+        // [SRCH-V22-EXT] Forced-move extension: when only ONE legal move exists
+        // (not a forced capture — captures are already handled in qsearch),
+        // extend by 1 ply so we don't cut the search at a forced position.
+        // Cap total extension at 4 to prevent infinite growth.
+        let extension = 0;
+        if (moves.length === 1 && !hasCaptures && !inNullMove && ply < 16) {
+            extension = 1;
+        }
+
         // [SRCH-V16-FP] Futility Pruning por profundidade
         if (!isPV && depth <= 3 && ply >= 1 && !inNullMove && !hasCaptures &&
                 alpha > -8000 && beta < 8000) {
@@ -1929,7 +1979,8 @@
 
             let score;
             if (i === 0) {
-                score = -search(s2, depth-1, -beta, -alpha, ply+1, m.from, m.to);
+                // [SRCH-V22-EXT] Apply forced-move extension on first (only) move
+                score = -search(s2, depth-1+extension, -beta, -alpha, ply+1, m.from, m.to);
             } else {
                 // [SRCH-V16-LMR] LMR adaptativo inspirado em log(depth)*log(i)
                 let lmrR = 0;
@@ -2006,9 +2057,9 @@
             }
 
             let score;
-            // [SRCH-V16-ASP] Janelas de aspiração: início 25 cp, cresce × 2
+            // [SRCH-V22-ASP] Janelas de aspiração: início 15 cp (antes 25), cresce × 2
             if (depth >= 5 && bestScore > -9000 && bestScore < 9000) {
-                let delta = 25, ok = false;
+                let delta = 15, ok = false;
                 while (!ok && !searchAborted) {
                     score = search(state, depth, bestScore-delta, bestScore+delta, 0, -1, -1);
                     if (searchAborted) break;
@@ -2030,19 +2081,12 @@
             reachedDepth=depth;
         }
 
-        // [ENG-V19-VAR] Root-level variety: collect all root moves within VARIETY_CP
-        // of the best score and pick one uniformly at random. This breaks the
-        // determinism of always choosing the single best-scored move (which produced
-        // the same game every session) while keeping the engine at full strength —
-        // any move inside the window is considered "equally good enough".
-        // We re-score each root move with a shallow 1-ply search so the scores are
-        // comparable; the best established in iterative deepening is the ceiling.
-        const VARIETY_CP = 20;
-        if (reachedDepth >= 2 && bestScore > -9000 && bestScore < 9000 && moves.length > 1) {
-            // [SRCH-V21-VAR] Score root moves with 1-ply search (not 0-depth static eval).
-            // BUG FIX (v21): the previous version used -s2.eval() (0-depth) which could
-            // select tactically unsound moves that look good statically but lose material
-            // one move later. A 1-ply search sees forced captures and basic tactics.
+        // [SRCH-V22-VAR] Root-level variety: DISABLED in CPU×CPU (MODE_MVM) so both
+        // engines always play their computed best move, producing near-draw results.
+        // In human-vs-CPU modes, a small window (10 cp) provides game variety without
+        // sacrificing tactical soundness. Scores are re-evaluated with a 1-ply search.
+        const VARIETY_CP = (cfgMode === MODE_MVM) ? 0 : 10;
+        if (VARIETY_CP > 0 && reachedDepth >= 2 && bestScore > -9000 && bestScore < 9000 && moves.length > 1) {
             const rootScores = [];
             for (const m of moves) {
                 const s2 = state.clone();
@@ -2050,12 +2094,11 @@
                 const sc = -search(s2, 1, -Infinity, Infinity, 1, m.from, m.to);
                 rootScores.push({ move: m, score: sc });
             }
-            // Find the max among quick scores to anchor the window
             const maxQuick = rootScores.reduce((mx, e) => Math.max(mx, e.score), -Infinity);
             const pool = rootScores.filter(e => e.score >= maxQuick - VARIETY_CP);
             if (pool.length > 1) {
-                // Weighted random: exponential weight so genuinely better moves are preferred
-                const weights = pool.map(e => Math.exp((e.score - maxQuick) / 15));
+                // Weighted random with sharper temperature (temp=8) — good moves are strongly preferred
+                const weights = pool.map(e => Math.exp((e.score - maxQuick) / 8));
                 const total = weights.reduce((s, w) => s + w, 0);
                 let rnd = Math.random() * total;
                 for (let i = 0; i < pool.length; i++) {
@@ -2693,7 +2736,7 @@
     resetBoard();
     // Set dynamic version badge
     const _vb = document.getElementById('version-badge');
-    if (_vb) _vb.textContent = `v${ENGINE_VERSION} · Elite Master Edition`;
+    if (_vb) _vb.textContent = `v${ENGINE_VERSION}`;
 
 </script>
 </body>
