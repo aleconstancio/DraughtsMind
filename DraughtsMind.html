@@ -566,49 +566,35 @@
             .version-badge { font-size: 0.57rem; }
         }
 
-        /* ── Coordinates (children of .board, survive render()) ──────────── */
-        .coord-letter {
+        /* ── Coordinates — static overlays OUTSIDE .board (never rotate) ──── */
+        /* Numbers always on the left, letters always at the bottom.           */
+        /* JS updates their content when the view flips (cfgView toggle).      */
+        .coord-numbers-overlay {
             position: absolute;
-            bottom: -18px;
-            height: 18px;
-            width: 12.5%;
+            left: 0; top: 0;
+            width: 18px; height: 100%;
+            display: flex;
+            flex-direction: column;   /* top → bottom */
+            pointer-events: none;
+            z-index: 25;
+        }
+        .coord-letters-overlay {
+            position: absolute;
+            left: 18px; right: 18px;
+            bottom: 0; height: 18px;
+            display: flex;
+            flex-direction: row;      /* left → right */
+            pointer-events: none;
+            z-index: 25;
+        }
+        .coord-label {
+            flex: 1;
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 10px;
             font-weight: bold;
             color: rgba(255,255,255,0.95);
-            pointer-events: none;
-            z-index: 20;
-        }
-        .coord-number {
-            position: absolute;
-            right: -18px;
-            width: 18px;
-            height: 12.5%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 10px;
-            font-weight: bold;
-            color: rgba(255,255,255,0.95);
-            pointer-events: none;
-            z-index: 20;
-        }
-        /* [VIS-V18-COORD] Quando o tabuleiro é girado (visão vermelha), os rótulos
-           de coordenadas são reposicionados para aparecerem na base (letras) e
-           lateral direita (números) da perspectiva visual do jogador ativo.
-           O conteúdo das coordenadas permanece matematicamente correto —
-           apenas o posicionamento visual dos rótulos é ajustado. */
-        .board.rotated .coord-letter {
-            bottom: unset;
-            top: -18px;
-            transform: rotate(180deg);
-        }
-        .board.rotated .coord-number {
-            right: unset;
-            left: -18px;
-            transform: rotate(180deg);
         }
     </style>
 </head>
@@ -620,6 +606,9 @@
         <div class="version-badge" id="version-badge">ELITE MASTER EDITION</div>
         <div class="board-ratio">
             <div id="board" class="board"></div>
+            <!-- Static coordinate overlays: never inside .board so they never rotate -->
+            <div id="coord-numbers" class="coord-numbers-overlay"></div>
+            <div id="coord-letters" class="coord-letters-overlay"></div>
         </div>
         <div class="status-bar" id="status-container">
             <div id="clock-white" class="timer">--:--</div>
@@ -740,7 +729,7 @@
 
 <script>
 // ══════════════════════════════════════════════════════════════════════════════
-//  DraughtsMind  v18.0.0  —  Elite Master Edition
+//  DraughtsMind  v19.0.0  —  Elite Master Edition
 //  Damas Brasileiras (CBD, tabuleiro 8×8), 100% offline, arquivo HTML único.
 //
 //  NOVIDADES v18.0.0 (sobre v17):
@@ -809,7 +798,7 @@
 //  [VIS-V17-7]  Crown da dama ligeiramente maior e com filtro drop-shadow melhor.
 // ══════════════════════════════════════════════════════════════════════════════
 
-    const ENGINE_VERSION = "18.0.0";
+    const ENGINE_VERSION = "19.0.0";
     const EMPTY = 0, W_MAN = 1, B_MAN = -1, W_KING = 2, B_KING = -2;
     const MODE_HVH = 0, MODE_HVM = 1, MODE_MVH = 2, MODE_MVM = 3, MODE_SAND = 4;
 
@@ -1342,30 +1331,23 @@
                 score += Math.round((wKMob-bKMob)*2);
             }
 
-            // [ENG-V18-2] Sinergia total: pesos de fase calibrados pela trajetória da partida.
-            // Em transição de abertura→meio-jogo: reforça controle de centro e estrutura.
-            // Em transição de meio-jogo→final: prioriza atividade de dama e mobilidade.
-            if (gameTrajectory.length >= 2) {
-                const recent = gameTrajectory[gameTrajectory.length - 1];
-                const prev   = gameTrajectory[Math.max(0, gameTrajectory.length - 4)];
-                const piecesTrend = prev.totalPieces - recent.totalPieces; // positivo = mais capturas recentes
-
-                if (trajectoryPhase === 'opening') {
-                    // Abertura: valoriza mais estrutura e mobilidade de desenvolvimento
-                    score += Math.round((wProt - bProt) * 2);
-                    score += Math.round((wChain - bChain) * 2 * mgFactor);
-                } else if (trajectoryPhase === 'middlegame') {
-                    // Meio-jogo: valoriza iniciativa e desequilíbrios táticos
-                    score += Math.round((wMob - bMob) * 2);
-                    if (piecesTrend >= 2) {
-                        // Sequência de capturas recente: bônus extra para quem ganhou material
-                        score += (wTot - bTot) * 15;
-                    }
-                } else {
-                    // Final: mobilidade de dama e coerência de conversão são decisivas
-                    score += Math.round((wKMob - bKMob) * 3);
-                    score += (wKingOnLong - bKingOnLong) * 5;
-                }
+            // [ENG-V19-2] Phase-based bonuses using local position data only.
+            // No global game-trajectory state is used here — each position is
+            // evaluated purely on its own merits to avoid search contamination.
+            // Old ENG-V18-2 used global `gameTrajectory` / `trajectoryPhase` which
+            // caused the search to amplify material imbalances with a non-symmetric
+            // +15×(wTot-bTot) bonus, creating a persistent white-wins bias.
+            if (trajectoryPhase === 'opening') {
+                score += Math.round((wProt - bProt) * 2);
+                score += Math.round((wChain - bChain) * 2 * mgFactor);
+            } else if (trajectoryPhase === 'middlegame') {
+                score += Math.round((wMob - bMob) * 2);
+                // Tactical imbalance: reward the side with more pieces proportionally
+                // but symmetrically — no amplification from global capture history.
+                if (wTot !== bTot) score += (wTot - bTot) * 6;
+            } else {
+                score += Math.round((wKMob - bKMob) * 3);
+                score += (wKingOnLong - bKingOnLong) * 5;
             }
 
             // Tempo/iniciativa (+10 cp para quem move)
@@ -1932,6 +1914,39 @@
             reachedDepth=depth;
         }
 
+        // [ENG-V19-VAR] Root-level variety: collect all root moves within VARIETY_CP
+        // of the best score and pick one uniformly at random. This breaks the
+        // determinism of always choosing the single best-scored move (which produced
+        // the same game every session) while keeping the engine at full strength —
+        // any move inside the window is considered "equally good enough".
+        // We re-score each root move with a shallow 1-ply search so the scores are
+        // comparable; the best established in iterative deepening is the ceiling.
+        const VARIETY_CP = 25;
+        if (reachedDepth >= 2 && bestScore > -9000 && bestScore < 9000 && moves.length > 1) {
+            // Score all root moves quickly (1-ply, no time limit)
+            const rootScores = [];
+            for (const m of moves) {
+                const s2 = state.clone();
+                s2.applyMove(m);
+                const sc = -s2.eval(); // quick 0-depth estimate from mover's perspective
+                rootScores.push({ move: m, score: sc });
+            }
+            // Find the max among quick scores to anchor the window
+            const maxQuick = rootScores.reduce((mx, e) => Math.max(mx, e.score), -Infinity);
+            const pool = rootScores.filter(e => e.score >= maxQuick - VARIETY_CP);
+            if (pool.length > 1) {
+                // Weighted random: exponential weight so genuinely better moves are preferred
+                const weights = pool.map(e => Math.exp((e.score - maxQuick) / 15));
+                const total = weights.reduce((s, w) => s + w, 0);
+                let rnd = Math.random() * total;
+                for (let i = 0; i < pool.length; i++) {
+                    rnd -= weights[i];
+                    if (rnd <= 0) { bestMove = pool[i].move; break; }
+                }
+                if (!bestMove) bestMove = pool[pool.length - 1].move;
+            }
+        }
+
         // [ENG-V18-1] Decisão final sobre uso do livro:
         // A engine confirma o lance como "Livro" SOMENTE se a busca também o elegeu.
         // Se a busca encontrou alternativa superior (> 50 cp de vantagem), a melhor
@@ -2014,22 +2029,38 @@
             sq.id=`sq-${idx}`; sq.onclick=()=>onSquareClick(idx);
             board.appendChild(sq);
         }
-        // Inject letter coords (A–H) into the board's bottom border.
-        // These are direct children of the board so render() cannot overwrite them.
-        for (let c=0; c<8; c++) {
-            const el=document.createElement('div');
-            el.className='coord-letter';
-            el.textContent=String.fromCharCode(65+c);
-            el.style.left=(c*12.5)+'%';
-            board.appendChild(el);
+        // Coordinates are in static overlays OUTSIDE .board — see updateCoords()
+    }
+
+    // [VIS-V19-COORD] Coordinate labels live in static overlay divs outside .board.
+    // They never rotate. Content (order) is updated here whenever the view flips.
+    //   White view — numbers left (bottom→top): 1…8  letters bottom (L→R): A…H
+    //   Red   view — numbers left (bottom→top): 8…1  letters bottom (L→R): H…A
+    function updateCoords() {
+        const numDiv = document.getElementById('coord-numbers');
+        const letDiv = document.getElementById('coord-letters');
+        if (!numDiv || !letDiv) return;
+        numDiv.innerHTML = '';
+        letDiv.innerHTML = '';
+        const flipped = cfgView === 'B';
+        // Numbers: overlay is top→bottom, so index 0 = top row visually
+        //   White: top = 8, bottom = 1  → array [8,7,6,5,4,3,2,1]
+        //   Red:   top = 1, bottom = 8  → array [1,2,3,4,5,6,7,8]
+        for (let i = 0; i < 8; i++) {
+            const n = flipped ? (i + 1) : (8 - i);
+            const el = document.createElement('div');
+            el.className = 'coord-label';
+            el.textContent = n;
+            numDiv.appendChild(el);
         }
-        // Inject number coords (1–8) into the board's left border.
-        for (let r=0; r<8; r++) {
-            const el=document.createElement('div');
-            el.className='coord-number';
-            el.textContent=(r+1).toString();
-            el.style.top=((7-r)*12.5)+'%';
-            board.appendChild(el);
+        // Letters: overlay is left→right
+        //   White: A,B,C,D,E,F,G,H   Red: H,G,F,E,D,C,B,A
+        for (let i = 0; i < 8; i++) {
+            const c = flipped ? String.fromCharCode(72 - i) : String.fromCharCode(65 + i);
+            const el = document.createElement('div');
+            el.className = 'coord-label';
+            el.textContent = c;
+            letDiv.appendChild(el);
         }
     }
 
@@ -2060,6 +2091,7 @@
         }
         const be=document.getElementById('board');
         if (cfgView==='B') be.classList.add('rotated'); else be.classList.remove('rotated');
+        updateCoords();
 
         if (!gameStarted) {
             txtStatus.innerText = gameEnded ? "Fim de Jogo" : "Pressione ▶ Iniciar / Continuar";
@@ -2526,6 +2558,7 @@
     // ── Inicialização ─────────────────────────────────────────────────────────
     buildOpeningBook();
     initDOM();
+    updateCoords();   // populate static coord overlays (outside .board, never rotate)
     resetBoard();
     // Set dynamic version badge
     const _vb = document.getElementById('version-badge');
