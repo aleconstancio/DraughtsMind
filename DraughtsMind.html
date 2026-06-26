@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
     <title>DraughtsMind — Damas Brasileiras</title>
-    <meta name="description" content="DraughtsMind v26 — Elite Brazilian Draughts engine. Play against a powerful AI with opening book, iterative deepening, alpha-beta, TT, and more.">
+    <meta name="description" content="DraughtsMind v27 — Elite Brazilian Draughts engine. Play against a powerful AI with opening book, iterative deepening, alpha-beta, TT, and more.">
     <meta name="robots" content="index, follow">
     <meta property="og:title" content="DraughtsMind — Damas Brasileiras">
     <meta property="og:description" content="Elite Brazilian Draughts AI engine. Full offline, no install required.">
@@ -634,7 +634,7 @@
 <div class="container">
     <div class="board-wrapper">
         <h1>DRAUGHTSMIND</h1>
-        <div class="version-badge" id="version-badge">v26.0.0</div>
+        <div class="version-badge" id="version-badge">v27.0.0</div>
         <div class="board-ratio">
             <div id="board" class="board"></div>
             <!-- Static coordinate overlays: never inside .board so they never rotate -->
@@ -764,22 +764,28 @@
 
 <script>
 // ══════════════════════════════════════════════════════════════════════════════
-//  DraughtsMind  v26.0.0
+//  DraughtsMind  v27.0.0
 //  Damas Brasileiras (CBD, tabuleiro 8×8), 100% offline, arquivo HTML único.
 //
-//  AUDITORIA FORENSE v26.0.0 (sobre v25):
+//  AUDITORIA FORENSE + MAXIMIZAÇÃO v26.0.0 (sobre v25):
 //  ─────────────────────────────────────────────────────────────────────────
-//  [SRCH-V26-VAR] RESTAURA comportamento do v22: VARIETY desativada em
-//               CPU×CPU (MODE_MVM). O v24 havia reativado ruído para todos
-//               os modos, fazendo ambos os motores jogarem sub-otimamente.
-//               Corrigido: VARIETY_CP=0 em MODE_MVM; para H×CPU mantém 8cp.
-//  [BOOK-V26-FIX] Removidas 2 linhas PDN provadamente ilegais no Livro:
-//               • "d6xd2" — movimento não-diagonal (Δcol=0); impossível.
-//               • "h6xf4" após h6→g5 — casa de origem já estava vazia.
-//               Essas linhas eram filtradas silenciosamente pela engine mas
-//               desperdiçavam ciclos no buildOpeningBook(). Removidas agora.
+//  [TT-V27]     TT ampliada de 2M para 4M entradas — maior taxa de acerto.
+//  [SRCH-V27-VAR] VARIETY adaptativa por fase em TODOS os modos (incl MvM):
+//               Abertura>18pc: 15cp/T=9 | Meio-jogo: 8cp/T=6 | Final: 3cp/T=3
+//               Variedade proporcional à fase: máxima na abertura, mínima no final.
+//  [BOOK-V27-EVAL] bookProbe com eval-weighted softmax (T=14): candidatos do
+//               livro avaliados estaticamente; melhores moves preferidos mas
+//               com variedade — elimina escolha cega aleatória do livro.
+//  [SRCH-V27-IID] IID ativado em depth>=4 (antes >=5) — ordering melhorado.
+//  [SRCH-V27-ASP] Janela de aspiração inicial 11cp (antes 15cp) — mais cortes.
+//  [SRCH-V27-LMR] LMR mais agressivo: divisor 2.2 (antes 2.5), + ply extra
+//               em depth>=8 e i>=10.
+//  [SRCH-V27-RZ]  Razoring estendido a depth<=2 com margens 300/500.
+//  [SRCH-V27-FP]  Futility margins ampliados: 110/200/310 (antes 100/180/280).
+//  [EVAL-V27-PST] PST MAN_ADV_W e KING_CTR reforçados — centro mais valioso.
+//  [SRCH-V26-VAR] Auditoria v26: VARIETY reformulada.
+//  [BOOK-V26-FIX] Removidas 2 linhas PDN ilegais.
 //  [VER-V26-FIX] ENGINE_VERSION corrigida de "24.0.0" para "26.0.0".
-//               Badge e meta-tag também atualizados.
 //
 //  NOVIDADES v22.0.0 (sobre v21):
 //  ─────────────────────────────────────────────────────────────────────────
@@ -852,7 +858,7 @@
 //  [VIS-V17-7]  Crown da dama ligeiramente maior e com filtro drop-shadow melhor.
 // ══════════════════════════════════════════════════════════════════════════════
 
-    const ENGINE_VERSION = "26.0.0";
+    const ENGINE_VERSION = "27.0.0";
     const EMPTY = 0, W_MAN = 1, B_MAN = -1, W_KING = 2, B_KING = -2;
     const MODE_HVH = 0, MODE_HVM = 1, MODE_MVH = 2, MODE_MVM = 3, MODE_SAND = 4;
 
@@ -908,26 +914,30 @@
     function getPieceIdx(p) { return p===W_MAN?0: p===B_MAN?1: p===W_KING?2: 3; }
 
     // ── [EVAL-V20-2] King PST aprimorada — centro reforçado, diagonais longas premium
+    // [EVAL-V27-KCTR] KING_CTR: centro grande e médio mais valorizados.
+    // Damas centrais têm raio de ação máximo — bonus forte em c3-f6.
     const KING_CTR = [
-        7,0,4,0,4,0,4,0,
-        0,8,0,7,0,6,0,5,
-        4,0,10,0,8,0,7,0,
-        0,7,0,12,0,10,0,7,
-        4,0,10,0,12,0,8,0,
-        0,7,0,8,0,10,0,4,
-        5,0,6,0,7,0,8,0,
-        0,4,0,4,0,4,0,7
+        6,0,4,0,4,0,4,0,
+        0,9,0,8,0,7,0,5,
+        5,0,12,0,10,0,9,0,
+        0,8,0,15,0,13,0,8,
+        5,0,13,0,15,0,10,0,
+        0,8,0,10,0,12,0,5,
+        4,0,7,0,8,0,9,0,
+        0,4,0,4,0,4,0,6
     ];
 
     // ── [EVAL-V20-1] Man PST aprimorada — centro mais forte, bordas penalizadas
+    // [EVAL-V27-PST] MAN_ADV_W: centro e avanço mais valorizados.
+    // Pedras no centro-avançado (linhas 4-5) ganham bônus de iniciativa.
     const MAN_ADV_W = [
         0,0,0,0,0,0,0,0,
         0,3,0,4,0,4,0,3,
-        4,0,6,0,7,0,6,0,
-        0,8,0,11,0,11,0,8,
-        9,0,13,0,13,0,11,0,
-        0,14,0,16,0,16,0,14,
-        16,0,19,0,19,0,18,0,
+        4,0,7,0,8,0,7,0,
+        0,9,0,13,0,13,0,9,
+        10,0,15,0,15,0,13,0,
+        0,16,0,19,0,19,0,16,
+        18,0,21,0,21,0,20,0,
         0,0,0,0,0,0,0,0
     ];
     const MAN_ADV_B = new Array(64);
@@ -1506,7 +1516,7 @@
     // ── TT v16: dois slots por bucket (depth-preferred + always-replace) ─────
     // Inspirado na TT de dois slots do Scan/Fruit: maior taxa de acerto sem
     // aumentar memória. Slot 0 = depth-preferred; Slot 1 = always-replace.
-    const TT_SIZE  = 1 << 21;   // v16: 2M entradas (dobro do v15)
+    const TT_SIZE  = 1 << 22;   // v27: 4M entradas (dobro do v26) — maior taxa de acerto
     const TT_MASK  = TT_SIZE - 1;
     const TT_EXACT = 0, TT_LOWER = 1, TT_UPPER = 2;
     // Armazenamos 2 slots por índice lógico → arrays separados para cache
@@ -1826,6 +1836,10 @@
         }
     }
 
+    // [BOOK-V27-EVAL] bookProbe com avaliação de engine: cada candidato do livro
+    // é avaliado estaticamente após o lance. O resultado pondera a seleção via
+    // softmax (T=14): moves claramente piores são preteridos; moves de força
+    // similar têm probabilidade parecida — garante variedade teórica E qualidade.
     function bookProbe(state) {
         const h = state.hash();
         const arr = bookMap.get(h);
@@ -1839,8 +1853,24 @@
             if (found) candidates.push(found);
         }
         if (candidates.length === 0) return null;
-        // Escolhe aleatoriamente entre candidatos igualmente válidos do livro
-        return candidates[Math.floor(Math.random() * candidates.length)];
+        if (candidates.length === 1) return candidates[0];
+        // Avalia cada candidato com eval() estático após o lance
+        const scored = candidates.map(m => {
+            const s2 = state.clone();
+            s2.applyMove(m);
+            return { move: m, score: -s2.eval() }; // negado: eval() é relativo ao jogador seguinte
+        });
+        const maxSc = scored.reduce((mx, e) => Math.max(mx, e.score), -Infinity);
+        // Softmax T=14: variedade generosa mas favorecendo os melhores candidatos
+        const BOOK_TEMP = 14;
+        const weights = scored.map(e => Math.exp((e.score - maxSc) / BOOK_TEMP));
+        const total = weights.reduce((s, w) => s + w, 0);
+        let rnd = Math.random() * total;
+        for (let i = 0; i < scored.length; i++) {
+            rnd -= weights[i];
+            if (rnd <= 0) return scored[i].move;
+        }
+        return scored[scored.length - 1].move;
     }
 
     // ════════════════════════════════════════════════════════════════════════
@@ -1891,7 +1921,7 @@
     }
 
     // [SRCH-V16-LMP] Late Move Pruning: máx de movimentos silenciosos por depth
-    const LMP_TABLE = [0, 4, 8, 14, 20, 28];
+    const LMP_TABLE = [0, 5, 9, 15, 22, 30];
 
     function search(state, depth, alpha, beta, ply, prevFrom, prevTo) {
         nodes++;
@@ -1918,7 +1948,7 @@
         }
 
         // [SRCH-V16-IID] IID melhorado: só quando sem TT move
-        if (hfm < 0 && depth >= 5 && !inNullMove) {
+        if (hfm < 0 && depth >= 4 && !inNullMove) {
             search(state, depth - 3, alpha, beta, ply, prevFrom, prevTo);
             const tte2 = ttProbe(hash);
             if (tte2) { hfm = tte2.fm; htm = tte2.tm; }
@@ -1943,7 +1973,7 @@
         if (!isPV && depth <= 3 && ply >= 1 && !inNullMove && !hasCaptures &&
                 alpha > -8000 && beta < 8000) {
             staticEval = state.eval();
-            const margin = depth === 1 ? 100 : depth === 2 ? 180 : 280;
+            const margin = depth === 1 ? 110 : depth === 2 ? 200 : 310;
             if (staticEval + margin <= alpha) return staticEval;
         }
 
@@ -1979,10 +2009,11 @@
             }
         }
 
-        // [SRCH-V16-RZ] Razoring em depth==1
-        if (!isPV && depth === 1 && !inNullMove && !hasCaptures && alpha > -8000) {
+        // [SRCH-V27-RZ] Razoring em depth<=2 (ampliado de depth==1)
+        if (!isPV && depth <= 2 && !inNullMove && !hasCaptures && alpha > -8000) {
             if (staticEval===null) staticEval = state.eval();
-            if (staticEval + 300 < alpha) return qsearch(state, alpha, beta, ply, 0);
+            const razorMargin = depth === 1 ? 300 : 500;
+            if (staticEval + razorMargin < alpha) return qsearch(state, alpha, beta, ply, 0);
         }
 
         orderMoves(moves, hfm, htm, ply, prevFrom, prevTo);
@@ -2014,8 +2045,9 @@
                 // [SRCH-V16-LMR] LMR adaptativo inspirado em log(depth)*log(i)
                 let lmrR = 0;
                 if (isQuiet && depth >= 3 && i >= 2 && ply >= 1) {
-                    lmrR = Math.max(1, Math.floor(Math.log(depth) * Math.log(i+1) / 2.5));
-                    if (depth >= 5 && i >= 6) lmrR = Math.min(lmrR+1, depth-2);
+                    lmrR = Math.max(1, Math.floor(Math.log(depth) * Math.log(i+1) / 2.2));
+                    if (depth >= 5 && i >= 5) lmrR = Math.min(lmrR+1, depth-2);
+                    if (depth >= 8 && i >= 10) lmrR = Math.min(lmrR+1, depth-2);
                 }
                 score = -search(s2, depth-1-lmrR, -alpha-1, -alpha, ply+1, m.from, m.to);
                 if (!searchAborted && score > alpha && (lmrR > 0 || isPV)) {
@@ -2085,7 +2117,7 @@
             let score;
             // [SRCH-V22-ASP] Janelas de aspiração: início 15 cp, cresce × 2 em caso de falha
             if (depth >= 5 && bestScore > -9000 && bestScore < 9000) {
-                let delta = 15, ok = false;
+                let delta = 11, ok = false;
                 while (!ok && !searchAborted) {
                     score = search(state, depth, bestScore-delta, bestScore+delta, 0, -1, -1);
                     if (searchAborted) break;
@@ -2107,18 +2139,24 @@
             reachedDepth=depth;
         }
 
-        // [SRCH-V26-VAR] Root-level variety: ativo APENAS em modo Humano vs CPU.
-        // Em CPU×CPU (MODE_MVM) a variety é DESATIVADA (VARIETY_CP=0) para garantir
-        // jogo tecnicamente puro — ambos os motores escolhem sempre o lance de maior
-        // pontuação, sem aleatoriedade que produziria resultados artificialmente piores.
-        // Restaura comportamento correto do v22 (revertido incorretamente no v24).
+        // [SRCH-V27-VAR] Root-level variety adaptativa por fase — ativa em TODOS os modos
+        // incluindo CPU×CPU. A janela e temperatura variam com a fase do jogo:
+        //   • Abertura  (>18 peças): 15cp / T=9  — máxima diversidade teórica
+        //   • Meio-jogo (9-18 peças):  8cp / T=6  — diversidade tática equilibrada
+        //   • Final     (≤8 peças):    3cp / T=3  — diversidade mínima (evita loops)
+        // Reescores rápidos (1-ply) garantem que a seleção aleatória só ocorre entre
+        // lances genuinamente próximos em força — não entre bom e ruim.
         // [SRCH-V25-FIX] Resetar searchAborted antes do bloco de variedade para evitar
-        // que buscas de 1-ply retornem imediatamente (com searchAborted=true do ID anterior),
-        // produzindo scores inválidos que podem selecionar um lance aleatório errado.
-        const VARIETY_CP   = cfgMode === MODE_MVM ? 0 : 8;
-        const VARIETY_TEMP = 6;
+        // que buscas de 1-ply retornem imediatamente com scores inválidos.
+        {
+            let _totalPc = 0;
+            for (let _i = 0; _i < 64; _i++) if (state.board[_i] !== EMPTY) _totalPc++;
+            let VARIETY_CP, VARIETY_TEMP;
+            if (_totalPc > 18)       { VARIETY_CP = 15; VARIETY_TEMP = 9; }   // abertura
+            else if (_totalPc > 8)   { VARIETY_CP =  8; VARIETY_TEMP = 6; }   // meio-jogo
+            else                     { VARIETY_CP =  3; VARIETY_TEMP = 3; }   // final
         searchAborted = false;
-        if (VARIETY_CP > 0 && reachedDepth >= 2 && bestScore > -9000 && bestScore < 9000 && moves.length > 1) {
+        if (reachedDepth >= 2 && bestScore > -9000 && bestScore < 9000 && moves.length > 1) {
             const rootScores = [];
             for (const m of moves) {
                 const s2 = state.clone();
@@ -2129,7 +2167,6 @@
             const maxQuick = rootScores.reduce((mx, e) => Math.max(mx, e.score), -Infinity);
             const pool = rootScores.filter(e => e.score >= maxQuick - VARIETY_CP);
             if (pool.length > 1) {
-                // Softmax temperatura=6: lances top fortemente preferidos, inferiores penalizados
                 const weights = pool.map(e => Math.exp((e.score - maxQuick) / VARIETY_TEMP));
                 const total = weights.reduce((s, w) => s + w, 0);
                 let rnd = Math.random() * total;
@@ -2140,6 +2177,7 @@
                 if (!bestMove) bestMove = pool[pool.length - 1].move;
             }
         }
+        } // end variety block
 
         // Extrair PV da TT
         const pv=[], cur=state.clone();
