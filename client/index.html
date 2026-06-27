@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DraughtsMind — Damas Brasileiras</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <h1 class="logo">🕢 DraughtsMind</h1>
+      <div class="header-actions">
+        <button id="btn-new" class="btn btn-gold">Novo Jogo</button>
+        <button id="btn-save" class="btn btn-blue">Salvar</button>
+        <button id="btn-load" class="btn btn-outline">Carregar</button>
+      </div>
+    </header>
+
+    <main class="main">
+      <div class="board-wrapper">
+        <div class="coord-numbers" id="coord-numbers"></div>
+        <div class="board" id="board"></div>
+        <div class="coord-letters" id="coord-letters"></div>
+      </div>
+
+      <aside class="sidebar">
+        <div class="panel status-panel">
+          <div class="status-bar" id="status-container">
+            <span id="status-text">Pronto</span>
+          </div>
+          <div class="analysis" id="analysis-text">Análise: Desativado</div>
+        </div>
+
+        <div class="panel controls-panel">
+          <label class="ctrl-label">Modo</label>
+          <div class="mode-btns" id="mode-btns">
+            <button class="mode-btn active" data-mode="0">PvP</button>
+            <button class="mode-btn" data-mode="1">PvA</button>
+            <button class="mode-btn" data-mode="2">AvA</button>
+          </div>
+          <label class="ctrl-label">Profundidade: <span id="depth-val">8</span></label>
+          <input type="range" id="cfg-depth" min="1" max="16" value="8" class="slider">
+        </div>
+
+        <div class="panel history-panel">
+          <h3 class="panel-title">Lances</h3>
+          <div class="move-list" id="move-list"></div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <!-- Modals -->
+  <div class="modal-overlay" id="modal" style="display:none">
+    <div class="modal">
+      <h2 id="modal-title"></h2>
+      <p id="modal-body"></p>
+      <button class="btn btn-gold" onclick="document.getElementById('modal').style.display='none'">OK</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="resume-modal" style="display:none">
+    <div class="modal">
+      <h2>Jogo em Andamento</h2>
+      <p>Deseja retomar o jogo salvo?</p>
+      <div class="modal-actions">
+        <button class="btn btn-gold" id="resume-yes">Retomar</button>
+        <button class="btn btn-outline" id="resume-no">Novo Jogo</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

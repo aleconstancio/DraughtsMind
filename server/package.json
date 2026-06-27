@@ -1,0 +1,14 @@
+{
+  "name": "draughtsmind-server",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "setup": "node -e \"import('./db.js').then(m => m.init())\""
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "better-sqlite3": "^11.0.0",
+    "cors": "^2.8.5"
+  }
+}
