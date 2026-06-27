@@ -65,6 +65,10 @@ export function evaluate(state, mode = 0) {
     // [EVAL-V22-BREAK] Breakthrough potential
     let wBreak1=0, bBreak1=0;
     let wBreak2=0, bBreak2=0;
+    // [EVAL-V28-FORK] Garfo: pedra que ataca duas peças inimigas
+    let wFork=0, bFork=0;
+    // [EVAL-V28-CONN] Pedras conectadas na mesma linha
+    let wConn=0, bConn=0;
     const wKingPositions=[], bKingPositions=[];
 
     let score = 0; // [FIX-V31-TDZ] declared before board scan to avoid TDZ
@@ -136,6 +140,23 @@ export function evaluate(state, mode = 0) {
                     break; // conta uma vez por pedra
                 }
             }
+
+            // [EVAL-V28-FORK] Garfo: pedra que ataca duas peças inimigas
+            {
+                const fDirs2 = sign===1 ? [[1,1],[1,-1]] : [[-1,1],[-1,-1]];
+                let threats = 0;
+                for (const [dr2,dc2] of fDirs2) {
+                    const nr2=r+dr2, nc2=c+dc2;
+                    if (nr2>=0&&nr2<8&&nc2>=0&&nc2<8) {
+                        const tp=state.board[nr2*8+nc2];
+                        if (tp!==EMPTY && Math.sign(tp)!==sign) threats++;
+                    }
+                }
+                if (threats >= 2) { if(sign===1) wFork++; else bFork++; }
+            }
+
+            // [EVAL-V28-CONN] Pedras conectadas na mesma linha
+            if (c<7 && state.board[i+1]===p) { if(sign===1) wConn++; else bConn++; }
 
         } else {
             if (sign===1) { wKingPositions.push(i); }
@@ -339,40 +360,11 @@ export function evaluate(state, mode = 0) {
         score += (wKingOnLong - bKingOnLong) * 5;
     }
 
-    // [EVAL-V28-FORK] Detecção de garfo: pedra que ataca duas peças inimigas
-    {
-        for (let i = 0; i < 64; i++) {
-            const p = state.board[i]; if (p === EMPTY) continue;
-            const r = i>>3, c = i&7, sign = Math.sign(p);
-            const isKing2 = (p===W_KING||p===B_KING);
-            if (!isKing2) {
-                const fDirs2 = sign===1 ? [[1,1],[1,-1]] : [[-1,1],[-1,-1]];
-                let threats = 0;
-                for (const [dr,dc] of fDirs2) {
-                    const nr=r+dr, nc=c+dc;
-                    if (nr>=0&&nr<8&&nc>=0&&nc<8) {
-                        const tp=state.board[nr*8+nc];
-                        if (tp!==EMPTY && Math.sign(tp)!==sign) threats++;
-                    }
-                }
-                if (threats >= 2) { if(sign===1) score+=12; else score-=12; }
-            }
-        }
-    }
+    // [EVAL-V28-FORK] Bônus de garfo (mesclada no loop principal)
+    score += (wFork-bFork)*12;
 
-    // [EVAL-V28-CONN] Pedras conectadas na mesma linha
-    {
-        let wConn=0, bConn=0;
-        for (let i = 0; i < 64; i++) {
-            const p = state.board[i]; if (p===EMPTY) continue;
-            const sign = Math.sign(p);
-            const r = i>>3, c = i&7;
-            if ((p===W_MAN||p===B_MAN)) {
-                if (c<7 && state.board[i+1]===p) { if(sign===1) wConn++; else bConn++; }
-            }
-        }
-        score += (wConn-bConn)*3;
-    }
+    // [EVAL-V28-CONN] Bônus de pedras conectadas (mesclada no loop principal)
+    score += (wConn-bConn)*3;
 
     // [EVAL-V24-TEMPO] +4 cp bias for human games (0 for AvA)
     const bias = (mode === 3) ? 0 : 4;
