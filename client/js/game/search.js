@@ -195,12 +195,8 @@ function search(state, depth, alpha, beta, ply, prevFrom, prevTo) {
     // [SRCH-V17-NMP] Null Move Pruning com R adaptativo e guard de finais
     if (!inNullMove && !isPV && depth >= 4 && !hasCaptures &&
             beta < 9000 && beta > -9000) {
-        let wK=0, bK=0, wP=0, bP=0, pc=0;
-        for (let i=0; i<64; i++) {
-            const sq=state.board[i]; if (sq===EMPTY) continue; pc++;
-            if (sq===W_KING) wK++; else if (sq===B_KING) bK++;
-            else if (sq===W_MAN) wP++; else bP++;
-        }
+        const wK = state.wK, bK = state.bK, wP = state.wP, bP = state.bP;
+        const pc = wK + bK + wP + bP;
         const sideKings = state.turn===1 ? wK : bK;
         const isPureKingEG = (wP===0 && bP===0 && pc<=6);
         if (!isPureKingEG && (pc >= 10 || sideKings > 0)) {

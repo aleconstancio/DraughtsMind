@@ -19,6 +19,7 @@ export class State {
         this.isEndgame     = false;
         this.endgameLimit  = 10;
         this.timeW = 0; this.timeB = 0;
+        this.wK = 0; this.wP = 0; this.bK = 0; this.bP = 0;
         this.init();
     }
     init() {
@@ -30,6 +31,7 @@ export class State {
                 else if (r > 4) this.board[i] = B_MAN;
             }
         }
+        this.wK = 0; this.wP = 12; this.bK = 0; this.bP = 12;
         this.turn = 1; this.hashHist = [this.hash()];
         this.halfMoveClock = 0; this.endgameClock = 0; this.isEndgame = false; this.endgameLimit = 10;
     }
@@ -45,6 +47,7 @@ export class State {
         s.endgameLimit  = this.endgameLimit;
         s.timeW         = this.timeW;
         s.timeB         = this.timeB;
+        s.wK = this.wK; s.wP = this.wP; s.bK = this.bK; s.bP = this.bP;
         return s;
     }
 
@@ -139,20 +142,39 @@ export class State {
     }
 
     applyMove(m) {
-        let p = this.board[m.from]; this.board[m.from] = EMPTY;
-        for (const cap of m.captured) this.board[cap] = EMPTY;
+        const oldPiece = this.board[m.from];
+        const oldSign = Math.sign(oldPiece);
+        const wasKing = Math.abs(oldPiece) === 2;
+        this.board[m.from] = EMPTY;
+
+        // Decrement source piece from material counts
+        if (oldSign === 1) { if (wasKing) this.wK--; else this.wP--; }
+        else { if (wasKing) this.bK--; else this.bP--; }
+
+        // Decrement captured pieces
+        for (const cap of m.captured) {
+            const capPiece = this.board[cap];
+            const capSign = Math.sign(capPiece);
+            const capKing = Math.abs(capPiece) === 2;
+            if (capSign === 1) { if (capKing) this.wK--; else this.wP--; }
+            else { if (capKing) this.bK--; else this.bP--; }
+            this.board[cap] = EMPTY;
+        }
+
+        let p = oldPiece;
         if (m.promo) p = Math.sign(p) * 2;
         this.board[m.to] = p;
+
+        // Increment destination piece
+        const newSign = Math.sign(p);
+        const isKing = Math.abs(p) === 2;
+        if (newSign === 1) { if (isKing) this.wK++; else this.wP++; }
+        else { if (isKing) this.bK++; else this.bP++; }
 
         if (m.captured.length > 0 || m.isPawn) this.halfMoveClock = 0;
         else this.halfMoveClock++;
 
-        let wK = 0, wP = 0, bK = 0, bP = 0;
-        for (let i = 0; i < 64; i++) {
-            const sq = this.board[i];
-            if (sq === W_KING) wK++; else if (sq === W_MAN) wP++;
-            else if (sq === B_KING) bK++; else if (sq === B_MAN) bP++;
-        }
+        const wK = this.wK, wP = this.wP, bK = this.bK, bP = this.bP;
 
         // Returns 0 (not endgame), 4 (1D×1D: 2-move rule), or 10 (other: 5-move rule)
         const endgameLimit = (() => {

@@ -47,7 +47,6 @@ const LONG_DIAG_A8H1 = new Set([7,14,21,28,35,42,49,56]);
 
 // v15.0.0 — adapted from monolith State.eval() method
 export function evaluate(state, mode = 0) {
-    let wP=0, bP=0;
     let wMob=0, bMob=0;
     let wBack=0, bBack=0, wEdge=0, bEdge=0;
     let wKMob=0, bKMob=0, wKCtr=0, bKCtr=0;
@@ -75,7 +74,6 @@ export function evaluate(state, mode = 0) {
         const isKing = (p===W_KING || p===B_KING);
 
         if (!isKing) {
-            if (sign===1) wP++; else bP++;
             const rank = sign===1 ? r : 7-r;
 
             if (sign===1) { wAdv += MAN_ADV_W[i]; }
@@ -162,7 +160,8 @@ export function evaluate(state, mode = 0) {
         }
     }
 
-    const wK=wKingPositions.length, bK=bKingPositions.length;
+    const wK=state.wK, bK=state.bK;
+    const wP=state.wP, bP=state.bP;
     const totalPieces = wK+wP+bK+bP;
     // [EVAL-V16-1] Valor de dama escala com fase do jogo
     const phase = Math.min(totalPieces, 24);
