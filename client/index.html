@@ -32,6 +32,19 @@
           <div class="analysis" id="analysis-text">Análise: Desativado</div>
         </div>
 
+        <div class="panel clock-panel">
+          <div class="clock-row">
+            <span class="clock-label">Brancas</span>
+            <span class="timer" id="clock-white">--:--</span>
+          </div>
+          <div class="clock-row">
+            <span class="clock-label">Pretas</span>
+            <span class="timer" id="clock-black">--:--</span>
+          </div>
+          <label class="ctrl-label">Tempo (min): <span id="time-val">0</span></label>
+          <input type="range" id="cfg-time" min="0" max="60" value="0" class="slider">
+        </div>
+
         <div class="panel controls-panel">
           <label class="ctrl-label">Modo</label>
           <div class="mode-btns" id="mode-btns">

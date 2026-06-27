@@ -10,6 +10,10 @@ import {
 } from './game/gameState.js';
 import { initControls, getMode, getDepth } from './ui/controls.js';
 import { addMove, clearHistory, getHistory, getPDN, renderHistory } from './ui/history.js';
+import {
+  initClock, resetClocks, startClock, stopClock,
+  debitThinkingTime, checkTimeout, getTimeLimit
+} from './ui/clock.js';
 
 let gameStarted = false;
 let gameEnded = false;
@@ -57,6 +61,8 @@ function isCPUTurn() {
 function startNewGame() {
     resetState();
     clearHistory();
+    stopClock();
+    resetClocks(getTimeLimit());
     currentMatchId = null;
     gameStarted = true;
     gameEnded = false;
@@ -70,6 +76,14 @@ function startNewGame() {
 
 function loop() {
     if (!gameStarted || gameEnded || isComputing) return;
+    const timeout = checkTimeout(getState().turn);
+    if (timeout) {
+        const winner = timeout === 'white' ? 'Pretas' : 'Brancas';
+        popModal('Fim de Jogo', `${winner} vencem! (Tempo esgotado)`);
+        finalizeMatch(timeout);
+        stopClock();
+        return;
+    }
     if (isCPUTurn()) triggerCPU();
 }
 
@@ -83,9 +97,12 @@ function triggerCPU() {
 
     setTimeout(() => {
         const state = getState();
+        const thinkStart = Date.now();
         const res = getBestMove(state, getDepth(), 0);
+        const elapsed = (Date.now() - thinkStart) / 1000;
         isComputing = false;
         barStatus.classList.remove('computing');
+        debitThinkingTime(state.turn, elapsed);
 
         const sc = res.score;
         const scStr = sc > 9000 ? 'Mate' : sc < -9000 ? '-Mate' : (sc >= 0 ? '+' : '') + (sc / 100).toFixed(2);
@@ -122,7 +139,10 @@ function executeMove(m) {
     renderHistory();
     saveMatch();
     checkGameEnd();
-    if (!gameEnded && gameStarted) setTimeout(loop, 50);
+    if (!gameEnded && gameStarted) {
+        if (getTimeLimit() > 0) startClock();
+        setTimeout(loop, 50);
+    }
 }
 
 function checkGameEnd() {
@@ -249,6 +269,7 @@ async function resumeMatch(id) {
 async function init() {
     await loadBook();
     initDOM();
+    initClock({ onTimeout: () => {} });
     initControls({
         onNewGame: startNewGame,
         onModeChange: () => {},
