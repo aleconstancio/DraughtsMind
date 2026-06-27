@@ -3,9 +3,11 @@ import { State } from './game/state.js';
 import { loadBook } from './game/book.js';
 import { getBestMove } from './game/search.js';
 import {
-    initDOM, render, setMoveCallback, getGameState, setGameState,
-    applyMove, resetBoard as resetBoardUI, updateCoords
+    initDOM, render, setMoveCallback, updateCoords
 } from './ui/board.js';
+import {
+    getState, setState, resetState, applyMove as applyGameMove
+} from './game/gameState.js';
 import { initControls, getMode, getDepth } from './ui/controls.js';
 import { addMove, clearHistory, getHistory, getPDN, renderHistory } from './ui/history.js';
 
@@ -43,7 +45,7 @@ async function apiGet(url) {
 
 function isCPUTurn() {
     const mode = getMode();
-    const state = getGameState();
+    const state = getState();
     if (mode === MODE_PVP) return false;
     if (mode === MODE_PVA) return state.turn === -1;
     if (mode === MODE_AVA) return true;
@@ -53,7 +55,7 @@ function isCPUTurn() {
 // ── Game flow ───────────────────────────────────────────────────────────────
 
 function startNewGame() {
-    resetBoardUI();
+    resetState();
     clearHistory();
     currentMatchId = null;
     gameStarted = true;
@@ -80,7 +82,7 @@ function triggerCPU() {
     barStatus.classList.add('computing');
 
     setTimeout(() => {
-        const state = getGameState();
+        const state = getState();
         const res = getBestMove(state, getDepth(), 0);
         isComputing = false;
         barStatus.classList.remove('computing');
@@ -114,7 +116,7 @@ function triggerCPU() {
 }
 
 function executeMove(m) {
-    applyMove(m);
+    applyGameMove(m);
     addMove(m, move2Str(m));
     render();
     renderHistory();
@@ -124,7 +126,7 @@ function executeMove(m) {
 }
 
 function checkGameEnd() {
-    const state = getGameState();
+    const state = getState();
     const moves = state.getMoves();
     const draw = state.checkDraw();
     if (moves.length === 0) {
@@ -153,7 +155,7 @@ function popModal(title, desc) {
 const MODE_NAMES = ['pvp', 'pva', 'ava'];
 
 async function saveMatch() {
-    const state = getGameState();
+    const state = getState();
     const mode = MODE_NAMES[getMode()];
 
     if (!currentMatchId) {
@@ -223,7 +225,7 @@ async function resumeMatch(id) {
         state.turn = res.state.turn;
         state.hashHist = [state.hash()];
 
-        setGameState(state);
+        setState(state);
 
         clearHistory();
         const histData = JSON.parse(res.state.history || '[]');

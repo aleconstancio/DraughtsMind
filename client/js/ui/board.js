@@ -1,10 +1,6 @@
-import { EMPTY, W_MAN, B_MAN, W_KING, B_KING, idx2Str, move2Str } from '../game/constants.js';
-import { State } from '../game/state.js';
+import { EMPTY } from '../game/constants.js';
+import { getState, getSelection, selectSquare, findMoveTo } from '../game/gameState.js';
 
-let gameState = new State();
-let selIdx = -1;
-let validMoves = [];
-let lastMove = null;
 let moveCallback = null;
 
 const squares = [];
@@ -29,27 +25,23 @@ export function initDOM() {
 
 function onSquareClick(idx) {
     if (moveCallback) {
-        const m = validMoves.find(m => m.to === idx);
+        const m = findMoveTo(idx);
         if (m) {
             moveCallback(m);
             return;
         }
-        if (gameState.board[idx] !== EMPTY && Math.sign(gameState.board[idx]) === gameState.turn) {
-            selIdx = idx;
-            validMoves = gameState.getMoves().filter(m => m.from === idx);
-        } else {
-            selIdx = -1;
-            validMoves = [];
-        }
+        selectSquare(idx);
         render();
     }
 }
 
 export function render() {
+    const { selIdx, valTgt, lastM } = getSelection();
+    const gameState = getState();
     const capturePathSquares = new Set();
     const captureVictimSquares = new Set();
-    if (selIdx !== -1 && validMoves.length > 0 && validMoves[0].captured.length > 0) {
-        for (const m of validMoves) {
+    if (selIdx !== -1 && valTgt.length > 0 && valTgt[0].captured.length > 0) {
+        for (const m of valTgt) {
             for (const sq of m.path) capturePathSquares.add(sq);
             for (const sq of m.captured) captureVictimSquares.add(sq);
         }
@@ -61,8 +53,8 @@ export function render() {
         const isDark = ((i >> 3) + (i & 7)) % 2 === 0;
         let cn = `square ${isDark ? 'sq-dark' : 'sq-light'}`;
         if (selIdx === i) cn += ' highlight';
-        else if (lastMove && (lastMove.from === i || lastMove.to === i)) cn += ' last-move';
-        if (validMoves.find(m => m.to === i)) cn += ' suggestion';
+        else if (lastM && (lastM.from === i || lastM.to === i)) cn += ' last-move';
+        if (valTgt.find(m => m.to === i)) cn += ' suggestion';
         else if (isDark && captureVictimSquares.has(i)) cn += ' capture-hint';
         sq.className = cn;
         const p = gameState.board[i];
@@ -77,37 +69,6 @@ export function render() {
 
 export function setMoveCallback(cb) {
     moveCallback = cb;
-}
-
-export function getGameState() {
-    return gameState;
-}
-
-export function setGameState(s) {
-    gameState = s;
-}
-
-export function selectSquare(idx) {
-    selIdx = idx;
-    validMoves = gameState.getMoves().filter(m => m.from === idx);
-}
-
-export function findMoveTo(idx) {
-    return validMoves.find(m => m.to === idx);
-}
-
-export function applyMove(m) {
-    gameState.applyMove(m);
-    lastMove = m;
-    selIdx = -1;
-    validMoves = [];
-}
-
-export function resetBoard() {
-    gameState = new State();
-    selIdx = -1;
-    validMoves = [];
-    lastMove = null;
 }
 
 export function updateCoords(flipped) {
