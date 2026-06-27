@@ -1,5 +1,4 @@
 import { State } from './state.js';
-import { EMPTY } from './constants.js';
 import { evaluate } from './eval.js';
 
 const DARK_SQUARES = [0,2,4,6,9,11,13,15,16,18,20,22,25,27,29,31,32,34,36,38,41,43,45,47,48,50,52,54,57,59,61,63];
