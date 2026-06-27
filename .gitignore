@@ -1,0 +1,9 @@
+node_modules/
+*.db
+*.sqlite
+.env
+dist/
+coverage/
+*.db
+*.db-shm
+*.db-wal
