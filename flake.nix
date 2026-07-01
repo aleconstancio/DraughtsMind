@@ -11,7 +11,7 @@
       pkgs = nixpkgs.legacyPackages.${system};
     in {
       devShells.${system}.default = pkgs.mkShell {
-        buildInputs = with pkgs; [
+          buildInputs = with pkgs; [
           nodejs_22
           gnumake
           gcc
@@ -20,23 +20,27 @@
           electron
           glib
           gtk3
+          at-spi2-core
           nss
           nspr
           libdrm
           mesa
+          libgbm
+          libGL
           pango
           cairo
           alsa-lib
           cups
           libexif
           libnotify
-          xorg.libX11
-          xorg.libXcomposite
-          xorg.libXdamage
-          xorg.libXext
-          xorg.libXfixes
-          xorg.libXrandr
-          xorg.libxcb
+          libx11
+          libxcomposite
+          libxdamage
+          libxext
+          libxfixes
+          libxrandr
+          libxcb
+          libxtst
           libxkbcommon
           dbus
           udev
@@ -47,6 +51,7 @@
           export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [
             pkgs.glib
             pkgs.gtk3
+            pkgs.at-spi2-core
             pkgs.nss
             pkgs.nspr
             pkgs.pango
@@ -54,8 +59,16 @@
             pkgs.alsa-lib
             pkgs.libdrm
             pkgs.mesa
-            pkgs.xorg.libX11
-            pkgs.xorg.libxcb
+            pkgs.libgbm
+            pkgs.libGL
+            pkgs.libx11
+            pkgs.libxcomposite
+            pkgs.libxdamage
+            pkgs.libxext
+            pkgs.libxfixes
+            pkgs.libxrandr
+            pkgs.libxcb
+            pkgs.libxtst
             pkgs.libxkbcommon
             pkgs.cups
             pkgs.dbus

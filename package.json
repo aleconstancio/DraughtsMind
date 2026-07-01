@@ -7,6 +7,7 @@
   "type": "module",
   "scripts": {
     "start": "electron .",
+    "start:nixos": "electron . --no-sandbox --disable-gpu",
     "build:flatpak": "electron-builder --linux --flatpak",
     "test": "node --test test/*.test.js"
   },
@@ -14,7 +15,7 @@
     "better-sqlite3": "^11.0.0"
   },
   "devDependencies": {
-    "electron": "^35.0.0",
+    "electron": "^35.7.5",
     "electron-builder": "^26.0.0"
   }
 }
