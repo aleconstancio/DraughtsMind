@@ -12,3 +12,4 @@ linux:
   target:
     - flatpak
   category: Game
+  icon: build/icons
