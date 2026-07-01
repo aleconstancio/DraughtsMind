@@ -2,6 +2,7 @@
   "name": "draughtsmind",
   "version": "3.0.0",
   "description": "Elite Brazilian Draughts AI engine",
+  "author": "salemnopturn",
   "main": "electron/main.js",
   "type": "module",
   "scripts": {
